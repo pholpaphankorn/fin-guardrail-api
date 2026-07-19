@@ -1,10 +1,11 @@
 from fastapi import FastAPI, UploadFile, File, Query, HTTPException
 from dotenv import load_dotenv
+
+load_dotenv()
+
 from app.schemas import RiskAssessmentResponse
 from app.services.extractor import extract_document_data
-
-# Ensure system environments are actively loaded prior to client creation
-load_dotenv()
+from app.services.validator import evaluate_thai_id_risk, evaluate_medical_claim_risk
 
 app = FastAPI(
     title="Fin-Guardrail API",
@@ -21,28 +22,38 @@ async def validate_document(
     file: UploadFile = File(...),
     doc_type: str = Query(..., description="Choose 'thai_id' or 'medical_receipt'")
 ):
-    # 1. Basic format verification guardrails
     if doc_type not in ["thai_id", "medical_receipt"]:
-        raise HTTPException(status_code=400, detail="Invalid doc_type parameter. Choose 'thai_id' or 'medical_receipt'.")
+        raise HTTPException(status_code=400, detail="Invalid doc_type parameter.")
         
     if not file.filename.lower().endswith(('.png', '.jpg', '.jpeg')):
-        raise HTTPException(status_code=400, detail="Invalid file type. Only PNG, JPG, and JPEG images are supported for processing.")
+        raise HTTPException(status_code=400, detail="Invalid file format. Upload an image file.")
 
-    # 2. Trigger the Multimodal Vision Extractor
+    # 1. Trigger the Visual Extractor layer
     extracted_pydantic_data = await extract_document_data(file, doc_type)
-    
-    # Converting the structured Pydantic object into a vanilla dictionary for the API payload
     raw_dict_data = extracted_pydantic_data.model_dump()
 
-    # 3. Interim placeholder mapping for Day 2 Guardrails & Scoring
-    # (Tomorrow we will replace these constants with automated rule evaluations)
-    mock_response = {
+    # 2. Route processing straight through our deterministic rule validators
+    if doc_type == "thai_id":
+        flags, risk_score = evaluate_thai_id_risk(extracted_pydantic_data)
+    else:
+        flags, risk_score = evaluate_medical_claim_risk(extracted_pydantic_data)
+
+    # 3. Apply operational routing thresholds matching security parameters
+    if risk_score >= 0.7:
+        status = "REJECTED"
+        reasoning = "System safety guardrails blocked transaction processing due to high systemic compliance risk."
+    elif risk_score > 0.0:
+        status = "FLAGGED_FOR_REVIEW"
+        reasoning = "Document contains validation alerts. Routed automatically to administrative review desks."
+    else:
+        status = "APPROVED"
+        reasoning = "Document passed all structural parameters and mathematical balancing audits cleanly."
+
+    return {
         "document_type": doc_type,
-        "status": "APPROVED", 
+        "status": status,
         "extracted_data": raw_dict_data,
-        "validation_flags": [],
-        "risk_score": 0.05,
-        "reasoning": "Data successfully processed through the multimodal schema parser engine."
+        "validation_flags": flags,
+        "risk_score": risk_score,
+        "reasoning": reasoning
     }
-    
-    return mock_response
