@@ -51,7 +51,7 @@ async def extract_document_data(file: UploadFile, doc_type: str):
             "'date_of_birth' (YYYY-MM-DD), and 'expiry_date' (YYYY-MM-DD).\n"
             "Do not nest fields inside objects like 'name' or 'english'."
         )
-        mock_file_path = "data/mock_thai_id.json"
+        mock_file_path = "data/mock_jsons/mock_thai_id.json"
     elif doc_type == "medical_receipt":
         target_schema = MedicalReceiptExtraction
         prompt_instruction = (
@@ -63,7 +63,7 @@ async def extract_document_data(file: UploadFile, doc_type: str):
             "- 'total_amount': The absolute total balance stated on the invoice as a single number/float.\n\n"
             "Do not invent outer objects or nest the root fields. Extract numbers as clean floats without currency symbols (e.g., use 500.0 instead of '500 THB')."
         )
-        mock_file_path = "data/mock_medical_receipt.json"
+        mock_file_path = "data/mock_jsons/mock_medical_receipt.json"
     else:
         raise HTTPException(
             status_code=400, detail="Unsupported document mapping.")
