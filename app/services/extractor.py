@@ -12,13 +12,13 @@ load_dotenv()
 # It uses the key from your environment variable for authentication
 ollama_client = Client(
     host="https://ollama.com",
-    headers={'Authorization': f"Bearer {os.environ.get('OLLAMA_API_KEY')}"}
+    headers={"Authorization": f"Bearer {os.environ.get('OLLAMA_API_KEY')}"},
 )
 
 
 def encode_file_to_base64(file_bytes: bytes) -> str:
     """Encodes raw file bytes into a base64 string for the Vision API."""
-    return base64.b64encode(file_bytes).decode('utf-8')
+    return base64.b64encode(file_bytes).decode("utf-8")
 
 
 async def extract_document_data(file: UploadFile, doc_type: str):
@@ -28,16 +28,16 @@ async def extract_document_data(file: UploadFile, doc_type: str):
     """
     # 1. Check if Mock Mode is globally active
     USE_MOCK = os.environ.get("USE_MOCK_LLM", "false").lower() == "true"
-    
+
     try:
         file_bytes = await file.read()
     except Exception as e:
         raise HTTPException(
-            status_code=500, detail=f"Failed to read file stream: {str(e)}")
+            status_code=500, detail=f"Failed to read file stream: {str(e)}"
+        )
 
     if not file_bytes:
-        raise HTTPException(
-            status_code=400, detail="The uploaded file is empty.")
+        raise HTTPException(status_code=400, detail="The uploaded file is empty.")
 
     base64_image = encode_file_to_base64(file_bytes)
 
@@ -65,8 +65,7 @@ async def extract_document_data(file: UploadFile, doc_type: str):
         )
         mock_file_path = "data/mock_jsons/mock_medical_receipt.json"
     else:
-        raise HTTPException(
-            status_code=400, detail="Unsupported document mapping.")
+        raise HTTPException(status_code=400, detail="Unsupported document mapping.")
 
     if USE_MOCK:
         try:
@@ -75,7 +74,9 @@ async def extract_document_data(file: UploadFile, doc_type: str):
             # Instantly validate raw dictionary records into full Pydantic models
             return target_schema.model_validate(raw_json)
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Local mock reading failure: {str(e)}")
+            raise HTTPException(
+                status_code=500, detail=f"Local mock reading failure: {str(e)}"
+            )
 
     # 2. Query Ollama's Cloud cluster using structural formatting options
     try:
@@ -85,12 +86,12 @@ async def extract_document_data(file: UploadFile, doc_type: str):
                 {
                     "requirement": "user",
                     "content": prompt_instruction,
-                    "images": [base64_image]
+                    "images": [base64_image],
                 }
             ],
             # Pass structural parameters to constrain output generation to valid schema objects
             format=target_schema.model_json_schema(),
-            options={"temperature": 0.0}
+            options={"temperature": 0.0},
         )
 
         # 3. Deserialize back into a strictly safe, validated Pydantic type instance
@@ -101,7 +102,8 @@ async def extract_document_data(file: UploadFile, doc_type: str):
 
     except Exception as e:
         raise HTTPException(
-            status_code=500, detail=f"Ollama Cloud Engine execution failure: {str(e)}")
+            status_code=500, detail=f"Ollama Cloud Engine execution failure: {str(e)}"
+        )
 
 
 def cleanup_raw_content(raw_content: str) -> str:

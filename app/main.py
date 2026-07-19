@@ -10,23 +10,27 @@ from app.services.validator import evaluate_thai_id_risk, evaluate_medical_claim
 app = FastAPI(
     title="Fin-Guardrail API",
     description="Automated Onboarding & Claims Risk Engine with Hybrid LLM/Deterministic Guardrails",
-    version="1.0.0"
+    version="1.0.0",
 )
+
 
 @app.get("/")
 async def root():
     return {"status": "healthy", "service": "fin-guardrail-api"}
 
+
 @app.post("/api/v1/validate-document", response_model=RiskAssessmentResponse)
 async def validate_document(
     file: UploadFile = File(...),
-    doc_type: str = Query(..., description="Choose 'thai_id' or 'medical_receipt'")
+    doc_type: str = Query(..., description="Choose 'thai_id' or 'medical_receipt'"),
 ):
     if doc_type not in ["thai_id", "medical_receipt"]:
         raise HTTPException(status_code=400, detail="Invalid doc_type parameter.")
-        
-    if not file.filename.lower().endswith(('.png', '.jpg', '.jpeg')):
-        raise HTTPException(status_code=400, detail="Invalid file format. Upload an image file.")
+
+    if not file.filename.lower().endswith((".png", ".jpg", ".jpeg")):
+        raise HTTPException(
+            status_code=400, detail="Invalid file format. Upload an image file."
+        )
 
     # 1. Trigger the Visual Extractor layer
     extracted_pydantic_data = await extract_document_data(file, doc_type)
@@ -55,5 +59,5 @@ async def validate_document(
         "extracted_data": raw_dict_data,
         "validation_flags": flags,
         "risk_score": risk_score,
-        "reasoning": reasoning
+        "reasoning": reasoning,
     }
