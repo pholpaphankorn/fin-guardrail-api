@@ -1,11 +1,19 @@
+from app.services.validator import evaluate_thai_id_risk, evaluate_medical_claim_risk
+from app.services.extractor import extract_document_data
+from app.schemas import RiskAssessmentResponse
+from enum import Enum
+
 from fastapi import FastAPI, UploadFile, File, Query, HTTPException
 from dotenv import load_dotenv
 
 load_dotenv()
 
-from app.schemas import RiskAssessmentResponse
-from app.services.extractor import extract_document_data
-from app.services.validator import evaluate_thai_id_risk, evaluate_medical_claim_risk
+
+# 1. Define your choices using an Enum
+class DocumentType(str, Enum):
+    THAI_ID = "thai_id"
+    MEDICAL_RECEIPT = "medical_receipt"
+
 
 app = FastAPI(
     title="Fin-Guardrail API",
@@ -22,7 +30,9 @@ async def root():
 @app.post("/api/v1/validate-document", response_model=RiskAssessmentResponse)
 async def validate_document(
     file: UploadFile = File(...),
-    doc_type: str = Query(..., description="Choose 'thai_id' or 'medical_receipt'"),
+    doc_type: DocumentType = Query(
+        ..., description="Choose 'thai_id' or 'medical_receipt'"
+    ),
 ):
     if doc_type not in ["thai_id", "medical_receipt"]:
         raise HTTPException(status_code=400, detail="Invalid doc_type parameter.")
