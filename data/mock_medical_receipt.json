@@ -1,0 +1,10 @@
+{
+  "hospital_name": "Example Health Test Clinic",
+  "receipt_date": "2026-01-01",
+  "items": [
+    {"description": "Consultation", "cost": 800.0},
+    {"description": "Medication", "cost": 150.0},
+    {"description": "Laboratory test", "cost": 1200.0}
+  ],
+  "total_amount": 2150.0
+}

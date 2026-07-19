@@ -1,90 +1,127 @@
+import json
 import os
 import base64
 from fastapi import UploadFile, HTTPException
-from openai import OpenAI
+from ollama import Client  # Import the programmatic Client constructor
 from app.schemas import ThaiIDExtraction, MedicalReceiptExtraction
 from dotenv import load_dotenv
-load_dotenv()  # Load environment variables from .env file
-# Initialize the OpenAI client natively
-# It automatically reads OPENAI_API_KEY from your .env if loaded via python-dotenv
-client = OpenAI()
+
+# Ensure system environments are actively loaded prior to client creation
+load_dotenv()
+# Instantiate the client pointing to Ollama's managed cloud environment
+# It uses the key from your environment variable for authentication
+ollama_client = Client(
+    host="https://ollama.com",
+    headers={'Authorization': f"Bearer {os.environ.get('OLLAMA_API_KEY')}"}
+)
+
 
 def encode_file_to_base64(file_bytes: bytes) -> str:
     """Encodes raw file bytes into a base64 string for the Vision API."""
     return base64.b64encode(file_bytes).decode('utf-8')
 
+
 async def extract_document_data(file: UploadFile, doc_type: str):
     """
-    Reads an uploaded file, converts it to base64, and prompts a Vision LLM
-    to pull structured JSON fields directly using native Pydantic validation.
+    Reads an uploaded file and dispatches it to an Ollama Cloud Vision model
+    enforcing a strict JSON response schema matching our Pydantic definitions.
     """
-    # Read the file contents into memory
+    # 1. Check if Mock Mode is globally active
+    USE_MOCK = os.environ.get("USE_MOCK_LLM", "false").lower() == "true"
+    
     try:
         file_bytes = await file.read()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to read file stream: {str(e)}")
-    
-    if not file_bytes:
-        raise HTTPException(status_code=400, detail="The uploaded file is empty.")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to read file stream: {str(e)}")
 
-    # Convert binary file to visual format base64
+    if not file_bytes:
+        raise HTTPException(
+            status_code=400, detail="The uploaded file is empty.")
+
     base64_image = encode_file_to_base64(file_bytes)
-    
-    # 1. Map endpoint selections to their targeted strict Pydantic schemas
+
+    # 1. Map target validation schemas and specialized processing prompts
     if doc_type == "thai_id":
         target_schema = ThaiIDExtraction
-        system_instruction = (
-            "You are a core security compliance agent for a Neobank. "
-            "Analyze the image of the Thai National ID Card and precisely extract the requested fields. "
-            "Convert dates carefully into YYYY-MM-DD format."
+        prompt_instruction = (
+            "Analyze the image of the Thai National ID Card and extract the fields into JSON. "
+            "You MUST use these exact keys in the root of the JSON object: "
+            "'id_number' (the 13 digit string), 'first_name_en', 'last_name_en', "
+            "'date_of_birth' (YYYY-MM-DD), and 'expiry_date' (YYYY-MM-DD).\n"
+            "Do not nest fields inside objects like 'name' or 'english'."
         )
+        mock_file_path = "data/mock_thai_id.json"
     elif doc_type == "medical_receipt":
         target_schema = MedicalReceiptExtraction
-        system_instruction = (
-            "You are an automated insurance claims auditing agent. "
-            "Extract the hospital details, dates, and every single itemized line-item from this receipt. "
-            "Ensure the itemized costs match exactly what is listed on the page."
+        prompt_instruction = (
+            "Analyze the image of the medical receipt or clinic invoice and extract the details into JSON.\n\n"
+            "You MUST structure the JSON with these exact keys at the root:\n"
+            "- 'hospital_name': The clear text string name of the clinic or hospital.\n"
+            "- 'receipt_date': The date of service or issue formatted strictly as YYYY-MM-DD.\n"
+            "- 'items': An array/list of individual medical services or medications. Each object in this list MUST contain exactly two keys: 'description' (string) and 'cost' (number/float).\n"
+            "- 'total_amount': The absolute total balance stated on the invoice as a single number/float.\n\n"
+            "Do not invent outer objects or nest the root fields. Extract numbers as clean floats without currency symbols (e.g., use 500.0 instead of '500 THB')."
         )
+        mock_file_path = "data/mock_medical_receipt.json"
     else:
-        raise HTTPException(status_code=400, detail="Unsupported classification category mapping.")
+        raise HTTPException(
+            status_code=400, detail="Unsupported document mapping.")
 
-    # 2. Invoke OpenAI's native Parsing Engine with a visual image payload
+    if USE_MOCK:
+        try:
+            with open(mock_file_path, "r", encoding="utf-8") as f:
+                raw_json = json.load(f)
+            # Instantly validate raw dictionary records into full Pydantic models
+            return target_schema.model_validate(raw_json)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Local mock reading failure: {str(e)}")
+
+    # 2. Query Ollama's Cloud cluster using structural formatting options
     try:
-        response = client.beta.chat.completions.parse(
-            model="gpt-4o-mini", # Highly efficient for structured vision tasks
+        response = ollama_client.chat(
+            model="gemma4:31b-cloud",  # Frontier cloud-hosted multimodal model
             messages=[
                 {
-                    "requirement": "system",
-                    "content": system_instruction
-                },
-                {
                     "requirement": "user",
-                    "content": [
-                        {
-                            "type": "text", 
-                            "text": "Extract all data from this document accurately according to the schema boundaries."
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64_image}"
-                            }
-                        }
-                    ]
+                    "content": prompt_instruction,
+                    "images": [base64_image]
                 }
             ],
-            response_format=target_schema, # The Pydantic model enforces structural safety
-            temperature=0.0 # Force maximum determinism
+            # Pass structural parameters to constrain output generation to valid schema objects
+            format=target_schema.model_json_schema(),
+            options={"temperature": 0.0}
         )
-        
-        # 3. Retrieve the validated, typed Pydantic object
-        extracted_object = response.choices[0].message.parsed
-        
-        if response.choices[0].message.refusal:
-            # Handle cases where the LLM flags the prompt as a safety violation
-            raise HTTPException(status_code=422, detail=f"Extraction refused: {response.choices[0].message.refusal}")
-            
+
+        # 3. Deserialize back into a strictly safe, validated Pydantic type instance
+        raw_content = cleanup_raw_content(response.message.content)
+        extracted_object = target_schema.model_validate_json(raw_content)
+
         return extracted_object
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"LLM Visual Parsing Engine failure: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Ollama Cloud Engine execution failure: {str(e)}")
+
+
+def cleanup_raw_content(raw_content: str) -> str:
+    """
+    Cleans up the raw string output from the Ollama model to ensure it is valid JSON.
+    This is a temporary measure until the model's output is fully reliable.
+    """
+    raw_content = raw_content.strip()
+
+    # FIX: Clean out markdown code fences if the model wraps them
+    if raw_content.startswith("```"):
+        # Remove opening fence like ```json or ```
+        if raw_content.startswith("```json"):
+            raw_content = raw_content[7:]
+        else:
+            raw_content = raw_content[3:]
+
+        # Remove closing fence
+        if raw_content.endswith("```"):
+            raw_content = raw_content[:-3]
+
+        raw_content = raw_content.strip()
+    return raw_content
