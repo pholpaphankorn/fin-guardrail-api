@@ -21,4 +21,8 @@ fin-guardrail-api/
 │       └── validator.py # Deterministic mathematical rule evaluations
 ├── scripts/
 │   └── run_eval.py      # Automated performance suite regression runner
+├── tests/
+│   ├── test_main.py       # API route / integration tests
+│   ├── test_validator.py  # Rule engine / risk logic unit tests
+│   └── test_extractor.py  # Extractor helper unit tests
 └── README.md            # Technical architecture writeup
