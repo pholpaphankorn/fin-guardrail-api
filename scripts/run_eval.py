@@ -1,8 +1,7 @@
 import sys
 import os
 import time
-import asyncio
-from unittest.mock import patch
+from typing import Callable
 from pydantic import BaseModel
 
 # Ensure root directory path mapping constraints are resolved properly
@@ -15,7 +14,8 @@ from app.services.validator import evaluate_thai_id_risk, evaluate_medical_claim
 EVAL_DATASET = [
     {
         "case_name": "Valid Thai National ID Card Profile",
-        "doc_type": "thai_id",
+        "doc_type": "THAI_ID",
+        "evaluator": evaluate_thai_id_risk,
         "mock_extraction": ThaiIDExtraction(
             id_number="0000000000000",
             first_name_en="Jane",
@@ -27,7 +27,8 @@ EVAL_DATASET = [
     },
     {
         "case_name": "Expired Thai National ID Card Profile",
-        "doc_type": "thai_id",
+        "doc_type": "THAI_ID",
+        "evaluator": evaluate_thai_id_risk,
         "mock_extraction": ThaiIDExtraction(
             id_number="0000000000000",
             first_name_en="John",
@@ -39,7 +40,8 @@ EVAL_DATASET = [
     },
     {
         "case_name": "Medical Claim Invoice - Balanced Ledger",
-        "doc_type": "medical_receipt",
+        "doc_type": "MEDICAL_RECEIPT",
+        "evaluator": evaluate_medical_claim_risk,
         "mock_extraction": MedicalReceiptExtraction(
             hospital_name="Bumrungrad International Hospital",
             receipt_date="2026-06-01",
@@ -53,7 +55,8 @@ EVAL_DATASET = [
     },
     {
         "case_name": "Fraudulent Medical Claim - Arithmetic Tampering",
-        "doc_type": "medical_receipt",
+        "doc_type": "MEDICAL_RECEIPT",
+        "evaluator": evaluate_medical_claim_risk,
         "mock_extraction": MedicalReceiptExtraction(
             hospital_name="Samitivej Sukhumvit Hospital",
             receipt_date="2026-07-01",
@@ -67,7 +70,8 @@ EVAL_DATASET = [
     },
     {
         "case_name": "Medical Claim Policy Alert - Non-Covered Cosmetic Item",
-        "doc_type": "medical_receipt",
+        "doc_type": "MEDICAL_RECEIPT",
+        "evaluator": evaluate_medical_claim_risk,
         "mock_extraction": MedicalReceiptExtraction(
             hospital_name="Yanhee Clinic",
             receipt_date="2026-07-10",
@@ -85,12 +89,9 @@ EVAL_DATASET = [
 ]
 
 
-def run_pipeline_logic(doc_type: str, mock_data: BaseModel) -> str:
-    """Simulates the internal app/main.py routing framework logic locally."""
-    if doc_type == "thai_id":
-        _, risk_score = evaluate_thai_id_risk(mock_data)
-    else:
-        _, risk_score = evaluate_medical_claim_risk(mock_data)
+def run_pipeline_logic(evaluator_fn: Callable, mock_data: BaseModel) -> str:
+    """Simulates the internal app/main.py status routing logic locally."""
+    _, risk_score = evaluator_fn(mock_data)
 
     if risk_score >= 0.7:
         return "REJECTED"
@@ -113,7 +114,7 @@ def main():
 
         # Track execution time metrics per evaluation pass
         case_start = time.time()
-        actual_status = run_pipeline_logic(case["doc_type"], case["mock_extraction"])
+        actual_status = run_pipeline_logic(case["evaluator"], case["mock_extraction"])
         latency = (time.time() - case_start) * 1000
 
         # Assess correctness tracking checks
@@ -124,7 +125,7 @@ def main():
         else:
             status_symbol = "❌ FAILED"
 
-        print(f"  -> Type: {case['doc_type'].upper()}")
+        print(f"  -> Type: {case['doc_type']}")
         print(f"  -> Latency: {latency:.2f} ms")
         print(
             f"  -> Pipeline Action Result: {actual_status} | Target: {case['expected_status']}"
