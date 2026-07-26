@@ -1,12 +1,16 @@
 import json
 import os
 import base64
+import logging
 from fastapi import UploadFile, HTTPException
+from pydantic import ValidationError
 from ollama import Client
 from app.schemas import ThaiIDExtraction, MedicalReceiptExtraction
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 ollama_client = Client(
     host="https://ollama.com",
@@ -36,7 +40,10 @@ def cleanup_raw_content(raw_content: str) -> str:
 async def _call_vision_model(
     file: UploadFile, prompt_instruction: str, target_schema, mock_file_path: str
 ):
-    """Core private handler for reading files, managing mock mode, and querying Ollama."""
+    """
+    Core private handler for reading files, managing mock mode, and querying Ollama.
+    Includes an automatic single-retry loop with a correction prompt if schema parsing fails.
+    """
     USE_MOCK = os.environ.get("USE_MOCK_LLM", "false").lower() == "true"
 
     try:
@@ -61,6 +68,7 @@ async def _call_vision_model(
 
     base64_image = encode_file_to_base64(file_bytes)
 
+    # --- ATTEMPT 1 ---
     try:
         response = ollama_client.chat(
             model="gemma4:31b-cloud",
@@ -77,6 +85,47 @@ async def _call_vision_model(
 
         raw_content = cleanup_raw_content(response.message.content)
         return target_schema.model_validate_json(raw_content)
+
+    except (ValidationError, json.JSONDecodeError, ValueError) as err:
+        logger.warning(
+            f"[Attempt 1 Failed] Vision LLM output failed schema parsing: {err}. Retrying with correction prompt..."
+        )
+
+        # --- ATTEMPT 2 (Correction Retry) ---
+        correction_prompt = (
+            f"{prompt_instruction}\n\n"
+            f"CRITICAL ERROR: Your previous response failed JSON schema validation with error:\n"
+            f"{str(err)}\n\n"
+            f"Please re-analyze the image carefully and output ONLY valid JSON matching the exact required keys."
+        )
+
+        try:
+            retry_response = ollama_client.chat(
+                model="gemma4:31b-cloud",
+                messages=[
+                    {
+                        "requirement": "user",
+                        "content": correction_prompt,
+                        "images": [base64_image],
+                    }
+                ],
+                format=target_schema.model_json_schema(),
+                options={"temperature": 0.0},
+            )
+
+            raw_retry_content = cleanup_raw_content(retry_response.message.content)
+            return target_schema.model_validate_json(raw_retry_content)
+
+        except (ValidationError, json.JSONDecodeError, ValueError) as final_err:
+            logger.error(f"[Attempt 2 Failed] Retry exhausted. Error: {final_err}")
+            raise HTTPException(
+                status_code=422,
+                detail="Unable to parse document format after standard retries. Document may be unreadable or damaged.",
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=500, detail=f"Ollama Cloud Engine retry execution failure: {str(e)}"
+            )
 
     except Exception as e:
         raise HTTPException(
