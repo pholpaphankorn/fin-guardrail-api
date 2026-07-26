@@ -2,6 +2,7 @@ import json
 import os
 import base64
 import logging
+from typing import Optional
 from fastapi import UploadFile, HTTPException
 from pydantic import ValidationError
 from ollama import Client
@@ -43,6 +44,7 @@ async def _call_vision_model(
     """
     Core private handler for reading files, managing mock mode, and querying Ollama.
     Includes an automatic single-retry loop with a correction prompt if schema parsing fails.
+    Returns None if extraction completely fails after retries.
     """
     USE_MOCK = os.environ.get("USE_MOCK_LLM", "false").lower() == "true"
 
@@ -118,13 +120,13 @@ async def _call_vision_model(
 
         except (ValidationError, json.JSONDecodeError, ValueError) as final_err:
             logger.error(f"[Attempt 2 Failed] Retry exhausted. Error: {final_err}")
-            raise HTTPException(
-                status_code=422,
-                detail="Unable to parse document format after standard retries. Document may be unreadable or damaged.",
-            )
+            # Return None to signal unparseable document to downstream handlers
+            return None
+
         except Exception as e:
             raise HTTPException(
-                status_code=500, detail=f"Ollama Cloud Engine retry execution failure: {str(e)}"
+                status_code=500,
+                detail=f"Ollama Cloud Engine retry execution failure: {str(e)}",
             )
 
     except Exception as e:
@@ -136,7 +138,7 @@ async def _call_vision_model(
 # --- Public Functional Extractors ---
 
 
-async def extract_thai_id(file: UploadFile) -> ThaiIDExtraction:
+async def extract_thai_id(file: UploadFile) -> Optional[ThaiIDExtraction]:
     """Extracts Thai National ID card fields into structured JSON."""
     prompt = (
         "Analyze the image of the Thai National ID Card and extract the fields into JSON. "
@@ -153,7 +155,9 @@ async def extract_thai_id(file: UploadFile) -> ThaiIDExtraction:
     )
 
 
-async def extract_medical_receipt(file: UploadFile) -> MedicalReceiptExtraction:
+async def extract_medical_receipt(
+    file: UploadFile,
+) -> Optional[MedicalReceiptExtraction]:
     """Extracts medical receipt line items and balance totals into structured JSON."""
     prompt = (
         "Analyze the image of the medical receipt or clinic invoice and extract the details into JSON.\n\n"

@@ -6,7 +6,7 @@ from typing import List, Optional
 class ThaiIDExtraction(BaseModel):
     # Required field (actively validated by rule checks)
     id_number: str = Field(description="The 13-digit Thai National ID number")
-    
+
     # Optional fields (extracted if visible, but won't crash parsing if missing)
     first_name_en: Optional[str] = Field(
         default=None, description="First name in English"
@@ -17,7 +17,7 @@ class ThaiIDExtraction(BaseModel):
     date_of_birth: Optional[str] = Field(
         default=None, description="Date of birth in YYYY-MM-DD format"
     )
-    
+
     # Required field (actively validated for expiry risk)
     expiry_date: str = Field(
         description="Expiry date in YYYY-MM-DD format or 'Lifetime'"
@@ -37,12 +37,12 @@ class MedicalReceiptExtraction(BaseModel):
     hospital_name: Optional[str] = Field(
         default=None, description="Name of the hospital or medical clinic"
     )
-    
+
     # Optional date field
     receipt_date: Optional[str] = Field(
         default=None, description="Date the receipt was issued in YYYY-MM-DD format"
     )
-    
+
     # Required fields (used directly in arithmetic math validation)
     items: List[LineItem] = Field(
         description="List of all itemized charges on the receipt"

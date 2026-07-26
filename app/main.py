@@ -41,6 +41,20 @@ def _calculate_status_and_reasoning(risk_score: float) -> tuple[str, str]:
     )
 
 
+def _build_unreadable_document_response(doc_type: str) -> dict:
+    """Returns a standard HTTP 200 rejection response when extraction completely fails."""
+    return {
+        "document_type": doc_type,
+        "status": "REJECTED",
+        "extracted_data": {},
+        "validation_flags": [
+            "UNREADABLE_DOCUMENT: Failed to parse required document fields after retries."
+        ],
+        "risk_score": 1.0,
+        "reasoning": "Unable to parse required document fields.",
+    }
+
+
 @app.get("/")
 async def root():
     return {"status": "healthy", "service": "fin-guardrail-api"}
@@ -52,6 +66,11 @@ async def validate_thai_id_endpoint(file: UploadFile = File(...)):
     _validate_image_format(file)
 
     extracted_data = await extract_thai_id(file)
+
+    # Handle unreadable/failed extraction gracefully as an HTTP 200 business rejection
+    if extracted_data is None:
+        return _build_unreadable_document_response("thai_id")
+
     flags, risk_score = evaluate_thai_id_risk(extracted_data)
     status, reasoning = _calculate_status_and_reasoning(risk_score)
 
@@ -71,6 +90,11 @@ async def validate_medical_receipt_endpoint(file: UploadFile = File(...)):
     _validate_image_format(file)
 
     extracted_data = await extract_medical_receipt(file)
+
+    # Handle unreadable/failed extraction gracefully as an HTTP 200 business rejection
+    if extracted_data is None:
+        return _build_unreadable_document_response("medical_receipt")
+
     flags, risk_score = evaluate_medical_claim_risk(extracted_data)
     status, reasoning = _calculate_status_and_reasoning(risk_score)
 
