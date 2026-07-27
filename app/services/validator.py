@@ -94,3 +94,32 @@ def evaluate_medical_claim_risk(
             break
 
     return flags, min(risk_score, 1.0)
+
+def calculate_status_and_reasoning(risk_score: float) -> tuple[str, str]:
+    """Applies risk threshold routing rules."""
+    if risk_score >= 0.7:
+        return (
+            "REJECTED",
+            "System safety guardrails blocked transaction processing due to high systemic compliance risk.",
+        )
+    elif risk_score > 0.0:
+        return (
+            "FLAGGED_FOR_REVIEW",
+            "Document contains validation alerts. Routed automatically to administrative review desks.",
+        )
+    return (
+        "APPROVED",
+        "Document passed all structural parameters and mathematical balancing audits cleanly.",
+    )
+
+
+def build_unreadable_document_response(doc_type: str, flag_reason: str) -> dict:
+    """Returns a standard HTTP 200 rejection response when pre-processing or extraction fails."""
+    return {
+        "document_type": doc_type,
+        "status": "REJECTED",
+        "extracted_data": {},
+        "validation_flags": [flag_reason],
+        "risk_score": 1.0,
+        "reasoning": "Document failed pre-processing visual quality or legibility guardrails.",
+    }
