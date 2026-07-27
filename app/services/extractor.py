@@ -56,7 +56,8 @@ async def _call_vision_model(
         )
 
     if not file_bytes:
-        raise HTTPException(status_code=400, detail="The uploaded file is empty.")
+        raise HTTPException(
+            status_code=400, detail="The uploaded file is empty.")
 
     if USE_MOCK:
         try:
@@ -115,12 +116,13 @@ async def _call_vision_model(
                 options={"temperature": 0.0},
             )
 
-            raw_retry_content = cleanup_raw_content(retry_response.message.content)
+            raw_retry_content = cleanup_raw_content(
+                retry_response.message.content)
             return target_schema.model_validate_json(raw_retry_content)
 
         except (ValidationError, json.JSONDecodeError, ValueError) as final_err:
-            logger.error(f"[Attempt 2 Failed] Retry exhausted. Error: {final_err}")
-            # Return None to signal unparseable document to downstream handlers
+            logger.error(
+                f"[Attempt 2 Failed] Retry exhausted. Error: {final_err}")
             return None
 
         except Exception as e:
@@ -144,7 +146,8 @@ async def extract_thai_id(file: UploadFile) -> Optional[ThaiIDExtraction]:
         "Analyze the image of the Thai National ID Card and extract the fields into JSON. "
         "You MUST use these exact keys in the root of the JSON object: "
         "'id_number' (the 13 digit string), 'first_name_en', 'last_name_en', "
-        "'date_of_birth' (YYYY-MM-DD), and 'expiry_date' (YYYY-MM-DD).\n"
+        "'date_of_birth' (YYYY-MM-DD), 'expiry_date' (YYYY-MM-DD), and "
+        "'confidence_score' (float between 0.0 and 1.0 representing your confidence in the clarity and accuracy of the extracted text).\n"
         "Do not nest fields inside objects like 'name' or 'english'."
     )
     return await _call_vision_model(
@@ -165,7 +168,8 @@ async def extract_medical_receipt(
         "- 'hospital_name': The clear text string name of the clinic or hospital.\n"
         "- 'receipt_date': The date of service or issue formatted strictly as YYYY-MM-DD.\n"
         "- 'items': An array/list of individual medical services or medications. Each object in this list MUST contain exactly two keys: 'description' (string) and 'cost' (number/float).\n"
-        "- 'total_amount': The absolute total balance stated on the invoice as a single number/float.\n\n"
+        "- 'total_amount': The absolute total balance stated on the invoice as a single number/float.\n"
+        "- 'confidence_score': A float number between 0.0 and 1.0 representing your confidence in the clarity and accuracy of the extracted text.\n\n"
         "Do not invent outer objects or nest the root fields. Extract numbers as clean floats without currency symbols (e.g., use 500.0 instead of '500 THB')."
     )
     return await _call_vision_model(

@@ -6,5 +6,6 @@
     {"description": "Medication", "cost": 150.0},
     {"description": "Laboratory test", "cost": 1200.0}
   ],
-  "total_amount": 2150.0
+  "total_amount": 2150.0,
+  "confidence_score": 0.92
 }

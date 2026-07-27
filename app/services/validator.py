@@ -10,7 +10,15 @@ def evaluate_thai_id_risk(data: ThaiIDExtraction) -> tuple[list[str], float]:
     flags = []
     risk_score = 0.0
 
-    # 1. Structural Identity Guardrail: Check length of ID
+    # 1. Vision LLM Confidence Guardrail
+    if data.confidence_score < 0.75:
+        flags.append(
+            f"LOW_MODEL_CONFIDENCE: Vision LLM extraction confidence ({data.confidence_score:.2f}) "
+            f"is below safety threshold (0.75)."
+        )
+        risk_score += 0.5
+
+    # 2. Structural Identity Guardrail: Check length of ID
     clean_id = "".join(data.id_number.split())  # Strip accidental whitespaces
     if len(clean_id) != 13 or not clean_id.isdigit():
         flags.append(
@@ -18,12 +26,11 @@ def evaluate_thai_id_risk(data: ThaiIDExtraction) -> tuple[list[str], float]:
         )
         risk_score += 0.6
 
-    # 2. Compliance Guardrail: Expiration Evaluation
+    # 3. Compliance Guardrail: Expiration Evaluation
     if data.expiry_date.strip().lower() != "lifetime":
         try:
-            # Parse date fields safely using the standard format string
             expiry_dt = datetime.strptime(data.expiry_date, "%Y-%m-%d").date()
-            current_dt = datetime.now().date()  # Current year: 2026
+            current_dt = datetime.now().date()
 
             if expiry_dt < current_dt:
                 flags.append(
@@ -36,7 +43,6 @@ def evaluate_thai_id_risk(data: ThaiIDExtraction) -> tuple[list[str], float]:
             )
             risk_score += 0.4
 
-    # Cap risk score boundaries safely
     return flags, min(risk_score, 1.0)
 
 
@@ -49,11 +55,17 @@ def evaluate_medical_claim_risk(
     flags = []
     risk_score = 0.0
 
-    # 1. Financial Guardrail: Mathematical Line-Item Verification
-    # Loop through items and aggregate float values to crosscheck balance sheets
+    # 1. Vision LLM Confidence Guardrail
+    if data.confidence_score < 0.75:
+        flags.append(
+            f"LOW_MODEL_CONFIDENCE: Vision LLM extraction confidence ({data.confidence_score:.2f}) "
+            f"is below safety threshold (0.75)."
+        )
+        risk_score += 0.5
+
+    # 2. Financial Guardrail: Mathematical Line-Item Verification
     calculated_total = sum(item.cost for item in data.items)
 
-    # Allow a minor epsilon floating-point tolerance of 0.01 instead of direct float mapping comparisons
     if abs(calculated_total - data.total_amount) > 0.01:
         flags.append(
             f"ARITHMETIC_MISMATCH: Stated invoice total ({data.total_amount}) does not match "
@@ -61,7 +73,7 @@ def evaluate_medical_claim_risk(
         )
         risk_score += 0.5
 
-    # 2. Risk Policy Guardrail: Flag prohibited service items (e.g., non-covered aesthetic/cosmetic items)
+    # 3. Risk Policy Guardrail: Flag prohibited service items
     high_risk_keywords = [
         "cosmetic",
         "plastic surgery",
@@ -79,6 +91,6 @@ def evaluate_medical_claim_risk(
                 f"HIGH_RISK_ITEM_FOUND: Claim item '{item.description}' matches non-covered coverage policies."
             )
             risk_score += 0.4
-            break  # Flag once is enough to trigger policy alerts
+            break
 
     return flags, min(risk_score, 1.0)

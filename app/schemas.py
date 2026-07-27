@@ -23,6 +23,12 @@ class ThaiIDExtraction(BaseModel):
         description="Expiry date in YYYY-MM-DD format or 'Lifetime'"
     )
 
+    # Model confidence assessment
+    confidence_score: float = Field(
+        default=1.0,
+        description="Confidence score between 0.0 (Uncertain/Blurry) and 1.0 (Certain/Clear) regarding document legibility and extraction accuracy."
+    )
+
 
 # --- Claims Models ---
 class LineItem(BaseModel):
@@ -48,6 +54,12 @@ class MedicalReceiptExtraction(BaseModel):
         description="List of all itemized charges on the receipt"
     )
     total_amount: float = Field(description="The total balance stated on the receipt")
+
+    # Model confidence assessment
+    confidence_score: float = Field(
+        default=1.0,
+        description="Confidence score between 0.0 (Uncertain/Blurry) and 1.0 (Certain/Clear) regarding document legibility and extraction accuracy."
+    )
 
 
 # --- Final System Response Model ---
