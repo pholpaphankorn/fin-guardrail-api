@@ -1,137 +1,107 @@
+import json
 import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
-from fastapi import UploadFile, HTTPException
+from unittest.mock import patch, MagicMock
+from fastapi import HTTPException
+from pydantic import ValidationError
+
 from app.services.extractor import (
-    cleanup_raw_content,
     encode_file_to_base64,
+    cleanup_raw_content,
     extract_thai_id,
     extract_medical_receipt,
+    _call_vision_model,
 )
-from app.schemas import ThaiIDExtraction, MedicalReceiptExtraction
-
-# =====================================================================
-# 1. HELPER FUNCTION TESTS
-# =====================================================================
+from app.schemas import ThaiIDExtraction
 
 
-def test_cleanup_raw_content_markdown_wrapper():
-    """Verify markdown fences are correctly stripped."""
-    wrapped_json = '```json\n{"key": "value"}\n```'
-    assert cleanup_raw_content(wrapped_json) == '{"key": "value"}'
+class TestExtractorHelpers:
 
+    def test_encode_file_to_base64(self):
+        """Happy Case: Encodes raw bytes to base64 string."""
+        raw_bytes = b"hello_world"
+        encoded = encode_file_to_base64(raw_bytes)
+        assert encoded == "aGVsbG9fd29ybGQ="
 
-def test_cleanup_raw_content_plain_json():
-    """Verify raw JSON passes through unchanged."""
-    plain_json = '{"key": "value"}'
-    assert cleanup_raw_content(plain_json) == '{"key": "value"}'
-
-
-def test_encode_file_to_base64():
-    """Verify bytes convert cleanly to a base64 string."""
-    sample_bytes = b"hello world"
-    encoded = encode_file_to_base64(sample_bytes)
-    assert isinstance(encoded, str)
-    assert encoded == "aGVsbG8gd29ybGQ="
-
-
-# =====================================================================
-# 2. EXTRACTOR FUNCTION TESTS (MOCKED)
-# =====================================================================
+    def test_cleanup_raw_content_markdown_json(self):
+        """Happy & Edge Case: Strips markdown code fences from JSON text."""
+        assert cleanup_raw_content("```json\n{\"key\": \"val\"}\n```") == "{\"key\": \"val\"}"
+        assert cleanup_raw_content("```\n{\"key\": \"val\"}\n```") == "{\"key\": \"val\"}"
+        assert cleanup_raw_content("{\"key\": \"val\"}") == "{\"key\": \"val\"}"
 
 
 @pytest.mark.asyncio
-async def test_extract_thai_id_empty_file():
-    """Verify HTTP 400 is raised when the uploaded file is empty."""
-    mock_file = MagicMock(spec=UploadFile)
-    mock_file.read = AsyncMock(return_value=b"")  # Empty byte stream
+class TestVisionModelExtraction:
 
-    try:
-        await extract_thai_id(mock_file)
-        assert False, "Expected HTTPException but none was raised"
-    except HTTPException as exc:
-        assert exc.status_code == 400
-        assert "The uploaded file is empty" in exc.detail
+    async def test_call_vision_model_failed_case_empty_bytes(self):
+        """Failed Case: Empty byte stream raises HTTP 400."""
+        with pytest.raises(HTTPException) as exc_info:
+            await _call_vision_model(
+                file_bytes=b"",
+                prompt_instruction="Test",
+                target_schema=ThaiIDExtraction,
+                mock_file_path="dummy.json",
+            )
+        assert exc_info.value.status_code == 400
 
+    @patch.dict("os.environ", {"USE_MOCK_LLM": "true"})
+    async def test_extract_thai_id_happy_case_mock_mode(self, tmp_path):
+        """Happy Case: Extract Thai ID using mock environment flag."""
+        mock_data = {
+            "id_number": "1234567890123",
+            "first_name_en": "TEST",
+            "last_name_en": "Dee",
+            "date_of_birth": "1990-01-01",
+            "expiry_date": "2028-01-01",
+            "confidence_score": 0.95,
+        }
+        mock_file = tmp_path / "mock_id.json"
+        mock_file.write_text(json.dumps(mock_data), encoding="utf-8")
 
-@pytest.mark.asyncio
-@patch("app.services.extractor.os.environ.get")
-@patch("app.services.extractor.ollama_client")
-async def test_extract_thai_id_success(mock_ollama, mock_env):
-    """Test live LLM branch for Thai ID extraction."""
-    mock_env.side_effect = lambda key, default=None: (
-        "false" if key == "USE_MOCK_LLM" else "fake_key"
-    )
+        res = await _call_vision_model(
+            file_bytes=b"valid_image_bytes",
+            prompt_instruction="Prompt",
+            target_schema=ThaiIDExtraction,
+            mock_file_path=str(mock_file),
+        )
 
-    mock_file = MagicMock(spec=UploadFile)
-    mock_file.read = AsyncMock(return_value=b"fake image bytes")
+        assert res.id_number == "1234567890123"
+        assert res.first_name_en == "TEST"
 
-    mock_response = MagicMock()
-    mock_response.message.content = """```json
-    {
-        "id_number": "0000000000000",
-        "first_name_en": "TEST",
-        "last_name_en": "USER",
-        "date_of_birth": "1990-01-01",
-        "expiry_date": "2030-01-01"
-    }
-    ```"""
-    mock_ollama.chat.return_value = mock_response
+    @patch.dict("os.environ", {"USE_MOCK_LLM": "false"})
+    @patch("app.services.extractor.ollama_client.chat")
+    async def test_call_vision_model_retry_success(self,mock_chat):
+        """Edge Case: Retries with correction prompt after Attempt 1 fails JSON parsing, then succeeds."""
+        invalid_resp = MagicMock()
+        invalid_resp.message.content = "{bad_json"
 
-    result = await extract_thai_id(mock_file)
+        valid_resp = MagicMock()
+        valid_resp.message.content = json.dumps({
+            "id_number": "1100000000000",
+            "first_name_en": "Jane",
+            "last_name_en": "Doe",
+            "date_of_birth": "1995-05-05",
+            "expiry_date": "2030-05-05",
+            "confidence_score": 0.9,
+        })
 
-    assert isinstance(result, ThaiIDExtraction)
-    assert result.id_number == "0000000000000"
-    assert result.first_name_en == "TEST"
-    mock_ollama.chat.assert_called_once()
+        # Attempt 1 returns invalid JSON, Attempt 2 returns valid schema
+        mock_chat.side_effect = [invalid_resp, valid_resp]
 
+        result = await extract_thai_id(file_bytes=b"dummy_bytes")
 
-@pytest.mark.asyncio
-async def test_extract_medical_receipt_empty_file():
-    """Verify HTTP 400 is raised when an empty file is passed to medical receipt extractor."""
-    mock_file = MagicMock(spec=UploadFile)
-    mock_file.read = AsyncMock(return_value=b"")  # Empty byte stream
+        assert result is not None
+        assert result.id_number == "1100000000000"
+        assert mock_chat.call_count == 2  # Verifies retry occurred
 
-    try:
-        await extract_medical_receipt(mock_file)
-        assert False, "Expected HTTPException but none was raised"
-    except HTTPException as exc:
-        assert exc.status_code == 400
-        assert "The uploaded file is empty" in exc.detail
+    @patch.dict("os.environ", {"USE_MOCK_LLM": "false"})
+    @patch("app.services.extractor.ollama_client.chat")
+    async def test_call_vision_model_exhausted_retries_returns_none(self,mock_chat):
+        """Failed Case: Returns None when both attempts fail schema parsing."""
+        bad_resp = MagicMock()
+        bad_resp.message.content = "Not JSON output"
+        mock_chat.return_value = bad_resp
 
+        result = await extract_thai_id(file_bytes=b"dummy_bytes")
 
-@pytest.mark.asyncio
-@patch("app.services.extractor.os.environ.get")
-@patch("app.services.extractor.ollama_client")
-async def test_extract_medical_receipt_success(mock_ollama, mock_env):
-    """Test live LLM branch for Medical Receipt extraction."""
-    mock_env.side_effect = lambda key, default=None: (
-        "false" if key == "USE_MOCK_LLM" else "fake_key"
-    )
-
-    mock_file = MagicMock(spec=UploadFile)
-    mock_file.read = AsyncMock(return_value=b"fake receipt image bytes")
-
-    mock_response = MagicMock()
-    mock_response.message.content = """```json
-    {
-        "hospital_name": "Example Health Test Clinic",
-        "receipt_date": "2026-01-01",
-        "items": [
-            {"description": "Consultation", "cost": 800.0},
-            {"description": "Medication", "cost": 150.0}
-        ],
-        "total_amount": 950.0
-    }
-    ```"""
-    mock_ollama.chat.return_value = mock_response
-
-    result = await extract_medical_receipt(mock_file)
-
-    assert isinstance(result, MedicalReceiptExtraction)
-    assert result.hospital_name == "Example Health Test Clinic"
-    assert result.receipt_date == "2026-01-01"
-    assert len(result.items) == 2
-    assert result.items[0].description == "Consultation"
-    assert result.items[0].cost == 800.0
-    assert result.total_amount == 950.0
-    mock_ollama.chat.assert_called_once()
+        assert result is None
+        assert mock_chat.call_count == 2

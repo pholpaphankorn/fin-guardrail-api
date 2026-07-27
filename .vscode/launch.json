@@ -16,6 +16,17 @@
       ],
       "jinja": true,
       "justMyCode": true
+    },
+        {
+      "name": "Pytest",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": [
+        "."
+      ],
+      "jinja": true,
+      "justMyCode": true
     }
   ]
 }
