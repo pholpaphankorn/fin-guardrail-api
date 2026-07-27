@@ -19,34 +19,29 @@ def evaluate_image_blur(file_bytes: bytes, threshold: float = DEFAULT_BLUR_THRES
     return is_blurry, blur_score
 
 
-async def validate_image_quality(file: UploadFile = File(...)) -> bytes:
+async def validate_image_quality(file: UploadFile = File(...)) -> tuple[bytes, bool, float]:
     """
-    Reusable FastAPI dependency that handles format checks, file reading,
-    and blur detection.
+    Reusable FastAPI dependency that handles file format checks, file reading,
+    and calculates blur scores.
     
-    Returns raw file_bytes if valid, or raises HTTPException / returns early.
+    Returns:
+        (file_bytes, is_blurry, blur_score)
     """
-    # 1. Format validation
+    # 1. Basic request validation (Protocol/Client errors still raise HTTP 400)
     if not file.filename.lower().endswith((".png", ".jpg", ".jpeg")):
         raise HTTPException(
             status_code=400,
             detail="Invalid file format. Upload an image file (.png, .jpg, .jpeg).",
         )
 
-    # 2. Read bytes
     file_bytes = await file.read()
     if not file_bytes:
         raise HTTPException(status_code=400, detail="The uploaded file is empty.")
 
-    # Reset stream pointer so downstream handlers can re-read if needed
+    # Reset stream pointer so downstream extractors can read if needed
     file.file.seek(0)
 
-    # 3. Blur check
+    # 2. Pre-processing Blur Evaluation
     is_blurry, blur_score = evaluate_image_blur(file_bytes)
-    if is_blurry:
-        raise HTTPException(
-            status_code=400,
-            detail=f"BLURRY_IMAGE_DETECTED: Focus score ({blur_score:.1f}) fell below safety threshold (100.0). Please re-take a clear photo."
-        )
 
-    return file_bytes
+    return file_bytes, is_blurry, blur_score
