@@ -1,9 +1,9 @@
-from fastapi import FastAPI, UploadFile, File, Depends
+from fastapi import FastAPI, Depends
 from dotenv import load_dotenv
 
 from app.services.validator import evaluate_thai_id_risk, evaluate_medical_claim_risk
 from app.services.extractor import extract_thai_id, extract_medical_receipt
-from app.services.image_processor import validate_image_quality
+from app.services.image_processor import evaluate_blur_dependency
 from app.schemas import RiskAssessmentResponse
 
 load_dotenv()
@@ -52,26 +52,25 @@ async def root():
 
 @app.post("/api/v1/validate/thai-id", response_model=RiskAssessmentResponse)
 async def validate_thai_id_endpoint(
-    file: UploadFile = File(...),
-    image_data: tuple[bytes, bool, float] = Depends(validate_image_quality)
+    image_data: tuple[bytes, bool, float] = Depends(evaluate_blur_dependency),
 ):
     """Validates Thai ID Cards for onboarding & KYC compliance."""
-    _, is_blurry, blur_score = image_data
+    processed_bytes, is_blurry, blur_score = image_data
 
     # 1. Pre-processing Blur Guardrail Check (HTTP 200 Business Rejection)
     if is_blurry:
         return _build_unreadable_document_response(
             "thai_id",
-            f"BLURRY_IMAGE_DETECTED: Focus score ({blur_score:.1f}) fell below safety threshold (100.0). Please re-take a clear photo."
+            f"BLURRY_IMAGE_DETECTED: Focus score ({blur_score:.1f}) fell below safety threshold (100.0). Please re-take a clear photo.",
         )
 
-    # 2. Extract Data via Vision LLM
-    extracted_data = await extract_thai_id(file)
+    # 2. Extract Data via Vision LLM using the resized bytes
+    extracted_data = await extract_thai_id(processed_bytes)
 
     if extracted_data is None:
         return _build_unreadable_document_response(
             "thai_id",
-            "UNREADABLE_DOCUMENT: Failed to parse required document fields after retries."
+            "UNREADABLE_DOCUMENT: Failed to parse required document fields after retries.",
         )
 
     # 3. Evaluate Risk Rules
@@ -90,26 +89,25 @@ async def validate_thai_id_endpoint(
 
 @app.post("/api/v1/validate/medical-receipt", response_model=RiskAssessmentResponse)
 async def validate_medical_receipt_endpoint(
-    file: UploadFile = File(...),
-    image_data: tuple[bytes, bool, float] = Depends(validate_image_quality)
+    image_data: tuple[bytes, bool, float] = Depends(evaluate_blur_dependency),
 ):
     """Validates Medical Receipts for insurance claims processing."""
-    _, is_blurry, blur_score = image_data
+    processed_bytes, is_blurry, blur_score = image_data
 
     # 1. Pre-processing Blur Guardrail Check (HTTP 200 Business Rejection)
     if is_blurry:
         return _build_unreadable_document_response(
             "medical_receipt",
-            f"BLURRY_IMAGE_DETECTED: Focus score ({blur_score:.1f}) fell below safety threshold (100.0). Please re-take a clear photo."
+            f"BLURRY_IMAGE_DETECTED: Focus score ({blur_score:.1f}) fell below safety threshold (100.0). Please re-take a clear photo.",
         )
 
-    # 2. Extract Data via Vision LLM
-    extracted_data = await extract_medical_receipt(file)
+    # 2. Extract Data via Vision LLM using the resized bytes
+    extracted_data = await extract_medical_receipt(processed_bytes)
 
     if extracted_data is None:
         return _build_unreadable_document_response(
             "medical_receipt",
-            "UNREADABLE_DOCUMENT: Failed to parse required document fields after retries."
+            "UNREADABLE_DOCUMENT: Failed to parse required document fields after retries.",
         )
 
     # 3. Evaluate Risk Rules

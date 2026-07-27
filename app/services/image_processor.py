@@ -1,33 +1,45 @@
 import cv2
 import numpy as np
-from fastapi import UploadFile, File, HTTPException
+from fastapi import UploadFile, File, HTTPException, Depends
 
 DEFAULT_BLUR_THRESHOLD = 100.0
+MAX_IMAGE_DIMENSION = 1920
 
 
-def evaluate_image_blur(file_bytes: bytes, threshold: float = DEFAULT_BLUR_THRESHOLD) -> tuple[bool, float]:
-    """Evaluates image sharpness using the Laplacian Variance method."""
-    nparr = np.frombuffer(file_bytes, np.uint8)
-    image = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
+def resize_image_if_needed(
+    image: np.ndarray, 
+    max_dim: int = MAX_IMAGE_DIMENSION
+) -> tuple[np.ndarray, bool]:
+    """Resizes an image array if its maximum dimension exceeds max_dim while preserving aspect ratio."""
+    height, width = image.shape[:2]
+    max_current_dim = max(height, width)
 
-    if image is None:
-        return True, 0.0
+    if max_current_dim <= max_dim:
+        return image, False
 
-    blur_score = float(cv2.Laplacian(image, cv2.CV_64F).var())
+    scale = max_dim / float(max_current_dim)
+    new_width = int(width * scale)
+    new_height = int(height * scale)
+
+    resized_image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
+    return resized_image, True
+
+
+def evaluate_image_blur(image_gray: np.ndarray, threshold: float = DEFAULT_BLUR_THRESHOLD) -> tuple[bool, float]:
+    """Evaluates image sharpness using the Laplacian Variance method on a grayscale image array."""
+    blur_score = float(cv2.Laplacian(image_gray, cv2.CV_64F).var())
     is_blurry = blur_score < threshold
-
     return is_blurry, blur_score
 
 
-async def validate_image_quality(file: UploadFile = File(...)) -> tuple[bytes, bool, float]:
+# --- FastAPI Dependencies ---
+
+async def get_resized_image_bytes(file: UploadFile = File(...)) -> bytes:
     """
-    Reusable FastAPI dependency that handles file format checks, file reading,
-    and calculates blur scores.
-    
-    Returns:
-        (file_bytes, is_blurry, blur_score)
+    Dependency 1: Format validation + Smart Resize.
+    Reads upload stream, validates file extension, downscales if > 1920px,
+    and returns optimized image bytes.
     """
-    # 1. Basic request validation (Protocol/Client errors still raise HTTP 400)
     if not file.filename.lower().endswith((".png", ".jpg", ".jpeg")):
         raise HTTPException(
             status_code=400,
@@ -38,10 +50,36 @@ async def validate_image_quality(file: UploadFile = File(...)) -> tuple[bytes, b
     if not file_bytes:
         raise HTTPException(status_code=400, detail="The uploaded file is empty.")
 
-    # Reset stream pointer so downstream extractors can read if needed
-    file.file.seek(0)
+    nparr = np.frombuffer(file_bytes, np.uint8)
+    image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-    # 2. Pre-processing Blur Evaluation
-    is_blurry, blur_score = evaluate_image_blur(file_bytes)
+    if image is None:
+        raise HTTPException(status_code=400, detail="Corrupted or unreadable image file.")
 
-    return file_bytes, is_blurry, blur_score
+    resized_image, was_resized = resize_image_if_needed(image, MAX_IMAGE_DIMENSION)
+
+    if was_resized:
+        ext = ".jpg" if file.filename.lower().endswith((".jpg", ".jpeg")) else ".png"
+        success, encoded_img = cv2.imencode(ext, resized_image, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+        if success:
+            return encoded_img.tobytes()
+
+    return file_bytes
+
+
+async def evaluate_blur_dependency(
+    resized_bytes: bytes = Depends(get_resized_image_bytes)
+) -> tuple[bytes, bool, float]:
+    """
+    Dependency 2: Blur Check.
+    Takes output from get_resized_image_bytes, converts to grayscale,
+    and calculates focus score.
+    """
+    nparr = np.frombuffer(resized_bytes, np.uint8)
+    image_gray = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
+
+    if image_gray is None:
+        return resized_bytes, True, 0.0
+
+    is_blurry, blur_score = evaluate_image_blur(image_gray)
+    return resized_bytes, is_blurry, blur_score

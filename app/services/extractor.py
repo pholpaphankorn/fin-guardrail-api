@@ -3,7 +3,7 @@ import os
 import base64
 import logging
 from typing import Optional
-from fastapi import UploadFile, HTTPException
+from fastapi import HTTPException
 from pydantic import ValidationError
 from ollama import Client
 from app.schemas import ThaiIDExtraction, MedicalReceiptExtraction
@@ -39,25 +39,19 @@ def cleanup_raw_content(raw_content: str) -> str:
 
 
 async def _call_vision_model(
-    file: UploadFile, prompt_instruction: str, target_schema, mock_file_path: str
+    file_bytes: bytes, prompt_instruction: str, target_schema, mock_file_path: str
 ):
     """
-    Core private handler for reading files, managing mock mode, and querying Ollama.
-    Includes an automatic single-retry loop with a correction prompt if schema parsing fails.
+    Core private handler for processing pre-processed image bytes, managing mock mode,
+    and querying Ollama. Includes an automatic single-retry loop with a correction prompt.
     Returns None if extraction completely fails after retries.
     """
     USE_MOCK = os.environ.get("USE_MOCK_LLM", "false").lower() == "true"
 
-    try:
-        file_bytes = await file.read()
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to read file stream: {str(e)}"
-        )
-
     if not file_bytes:
         raise HTTPException(
-            status_code=400, detail="The uploaded file is empty.")
+            status_code=400, detail="The provided image byte stream is empty."
+        )
 
     if USE_MOCK:
         try:
@@ -116,13 +110,11 @@ async def _call_vision_model(
                 options={"temperature": 0.0},
             )
 
-            raw_retry_content = cleanup_raw_content(
-                retry_response.message.content)
+            raw_retry_content = cleanup_raw_content(retry_response.message.content)
             return target_schema.model_validate_json(raw_retry_content)
 
         except (ValidationError, json.JSONDecodeError, ValueError) as final_err:
-            logger.error(
-                f"[Attempt 2 Failed] Retry exhausted. Error: {final_err}")
+            logger.error(f"[Attempt 2 Failed] Retry exhausted. Error: {final_err}")
             return None
 
         except Exception as e:
@@ -140,8 +132,8 @@ async def _call_vision_model(
 # --- Public Functional Extractors ---
 
 
-async def extract_thai_id(file: UploadFile) -> Optional[ThaiIDExtraction]:
-    """Extracts Thai National ID card fields into structured JSON."""
+async def extract_thai_id(file_bytes: bytes) -> Optional[ThaiIDExtraction]:
+    """Extracts Thai National ID card fields into structured JSON from image bytes."""
     prompt = (
         "Analyze the image of the Thai National ID Card and extract the fields into JSON. "
         "You MUST use these exact keys in the root of the JSON object: "
@@ -151,7 +143,7 @@ async def extract_thai_id(file: UploadFile) -> Optional[ThaiIDExtraction]:
         "Do not nest fields inside objects like 'name' or 'english'."
     )
     return await _call_vision_model(
-        file=file,
+        file_bytes=file_bytes,
         prompt_instruction=prompt,
         target_schema=ThaiIDExtraction,
         mock_file_path="data/mock_jsons/mock_thai_id.json",
@@ -159,9 +151,9 @@ async def extract_thai_id(file: UploadFile) -> Optional[ThaiIDExtraction]:
 
 
 async def extract_medical_receipt(
-    file: UploadFile,
+    file_bytes: bytes,
 ) -> Optional[MedicalReceiptExtraction]:
-    """Extracts medical receipt line items and balance totals into structured JSON."""
+    """Extracts medical receipt line items and balance totals into structured JSON from image bytes."""
     prompt = (
         "Analyze the image of the medical receipt or clinic invoice and extract the details into JSON.\n\n"
         "You MUST structure the JSON with these exact keys at the root:\n"
@@ -173,7 +165,7 @@ async def extract_medical_receipt(
         "Do not invent outer objects or nest the root fields. Extract numbers as clean floats without currency symbols (e.g., use 500.0 instead of '500 THB')."
     )
     return await _call_vision_model(
-        file=file,
+        file_bytes=file_bytes,
         prompt_instruction=prompt,
         target_schema=MedicalReceiptExtraction,
         mock_file_path="data/mock_jsons/mock_medical_receipt.json",
