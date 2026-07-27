@@ -24,9 +24,9 @@ class TestExtractorHelpers:
 
     def test_cleanup_raw_content_markdown_json(self):
         """Happy & Edge Case: Strips markdown code fences from JSON text."""
-        assert cleanup_raw_content("```json\n{\"key\": \"val\"}\n```") == "{\"key\": \"val\"}"
-        assert cleanup_raw_content("```\n{\"key\": \"val\"}\n```") == "{\"key\": \"val\"}"
-        assert cleanup_raw_content("{\"key\": \"val\"}") == "{\"key\": \"val\"}"
+        assert cleanup_raw_content('```json\n{"key": "val"}\n```') == '{"key": "val"}'
+        assert cleanup_raw_content('```\n{"key": "val"}\n```') == '{"key": "val"}'
+        assert cleanup_raw_content('{"key": "val"}') == '{"key": "val"}'
 
 
 @pytest.mark.asyncio
@@ -69,20 +69,22 @@ class TestVisionModelExtraction:
 
     @patch.dict("os.environ", {"USE_MOCK_LLM": "false"})
     @patch("app.services.extractor.ollama_client.chat")
-    async def test_call_vision_model_retry_success(self,mock_chat):
+    async def test_call_vision_model_retry_success(self, mock_chat):
         """Edge Case: Retries with correction prompt after Attempt 1 fails JSON parsing, then succeeds."""
         invalid_resp = MagicMock()
         invalid_resp.message.content = "{bad_json"
 
         valid_resp = MagicMock()
-        valid_resp.message.content = json.dumps({
-            "id_number": "1100000000000",
-            "first_name_en": "Jane",
-            "last_name_en": "Doe",
-            "date_of_birth": "1995-05-05",
-            "expiry_date": "2030-05-05",
-            "confidence_score": 0.9,
-        })
+        valid_resp.message.content = json.dumps(
+            {
+                "id_number": "1100000000000",
+                "first_name_en": "Jane",
+                "last_name_en": "Doe",
+                "date_of_birth": "1995-05-05",
+                "expiry_date": "2030-05-05",
+                "confidence_score": 0.9,
+            }
+        )
 
         # Attempt 1 returns invalid JSON, Attempt 2 returns valid schema
         mock_chat.side_effect = [invalid_resp, valid_resp]
@@ -95,7 +97,7 @@ class TestVisionModelExtraction:
 
     @patch.dict("os.environ", {"USE_MOCK_LLM": "false"})
     @patch("app.services.extractor.ollama_client.chat")
-    async def test_call_vision_model_exhausted_retries_returns_none(self,mock_chat):
+    async def test_call_vision_model_exhausted_retries_returns_none(self, mock_chat):
         """Failed Case: Returns None when both attempts fail schema parsing."""
         bad_resp = MagicMock()
         bad_resp.message.content = "Not JSON output"

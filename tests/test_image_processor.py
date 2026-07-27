@@ -13,18 +13,38 @@ from app.services.image_processor import (
     DEFAULT_BLUR_THRESHOLD,
 )
 
-
 # --- Helper Functions for Generating Synthetic Image Streams ---
 
-def create_synthetic_image_bytes(width: int, height: int, add_text: bool = True, blur_ksize: int = 0, ext: str = ".jpg") -> bytes:
+
+def create_synthetic_image_bytes(
+    width: int,
+    height: int,
+    add_text: bool = True,
+    blur_ksize: int = 0,
+    ext: str = ".jpg",
+) -> bytes:
     """Generates an in-memory image byte stream with optional text and blur."""
     img = np.zeros((height, width, 3), dtype=np.uint8)
     img.fill(240)  # Light gray background
 
     if add_text:
         # High-contrast sharp patterns give high Laplacian variance
-        cv2.putText(img, "FIN-GUARDRAIL TEST ID", (50, min(height - 20, 100)), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 0), 3)
-        cv2.rectangle(img, (20, 20), (min(width - 20, 400), min(height - 20, 300)), (0, 100, 200), 2)
+        cv2.putText(
+            img,
+            "FIN-GUARDRAIL TEST ID",
+            (50, min(height - 20, 100)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1.2,
+            (0, 0, 0),
+            3,
+        )
+        cv2.rectangle(
+            img,
+            (20, 20),
+            (min(width - 20, 400), min(height - 20, 300)),
+            (0, 100, 200),
+            2,
+        )
 
     if blur_ksize > 0:
         # Gaussian blur softens edges, dropping variance
@@ -40,6 +60,7 @@ def create_mock_upload_file(file_bytes: bytes, filename: str) -> UploadFile:
 
 
 # --- Unit Tests: Pure Helper Functions ---
+
 
 class TestPureImageProcessing:
 
@@ -80,14 +101,26 @@ class TestPureImageProcessing:
 
     def test_evaluate_image_blur_sharp_vs_blurry(self):
         """Happy & Failure cases for blur calculation."""
-        sharp_bytes = create_synthetic_image_bytes(800, 600, add_text=True, blur_ksize=0)
-        blurry_bytes = create_synthetic_image_bytes(800, 600, add_text=True, blur_ksize=35)
+        sharp_bytes = create_synthetic_image_bytes(
+            800, 600, add_text=True, blur_ksize=0
+        )
+        blurry_bytes = create_synthetic_image_bytes(
+            800, 600, add_text=True, blur_ksize=35
+        )
 
-        sharp_gray = cv2.imdecode(np.frombuffer(sharp_bytes, np.uint8), cv2.IMREAD_GRAYSCALE)
-        blurry_gray = cv2.imdecode(np.frombuffer(blurry_bytes, np.uint8), cv2.IMREAD_GRAYSCALE)
+        sharp_gray = cv2.imdecode(
+            np.frombuffer(sharp_bytes, np.uint8), cv2.IMREAD_GRAYSCALE
+        )
+        blurry_gray = cv2.imdecode(
+            np.frombuffer(blurry_bytes, np.uint8), cv2.IMREAD_GRAYSCALE
+        )
 
-        is_blurry_sharp, sharp_score = evaluate_image_blur(sharp_gray, threshold=DEFAULT_BLUR_THRESHOLD)
-        is_blurry_blur, blur_score = evaluate_image_blur(blurry_gray, threshold=DEFAULT_BLUR_THRESHOLD)
+        is_blurry_sharp, sharp_score = evaluate_image_blur(
+            sharp_gray, threshold=DEFAULT_BLUR_THRESHOLD
+        )
+        is_blurry_blur, blur_score = evaluate_image_blur(
+            blurry_gray, threshold=DEFAULT_BLUR_THRESHOLD
+        )
 
         assert is_blurry_sharp is False
         assert sharp_score >= DEFAULT_BLUR_THRESHOLD
@@ -97,6 +130,7 @@ class TestPureImageProcessing:
 
 
 # --- Async Integration Tests: FastAPI Dependencies ---
+
 
 @pytest.mark.asyncio
 class TestFastAPIDependencies:
@@ -117,7 +151,9 @@ class TestFastAPIDependencies:
         processed_bytes = await get_resized_image_bytes(upload_file)
 
         # Decode resulting bytes to check dimensions
-        decoded = cv2.imdecode(np.frombuffer(processed_bytes, np.uint8), cv2.IMREAD_COLOR)
+        decoded = cv2.imdecode(
+            np.frombuffer(processed_bytes, np.uint8), cv2.IMREAD_COLOR
+        )
         assert max(decoded.shape[:2]) == MAX_IMAGE_DIMENSION
 
     async def test_get_resized_image_bytes_invalid_extension_failure(self):
@@ -154,9 +190,13 @@ class TestFastAPIDependencies:
 
     async def test_evaluate_blur_dependency_sharp_image(self):
         """Happy case: Sharp image evaluates to is_blurry = False."""
-        sharp_bytes = create_synthetic_image_bytes(1000, 800, add_text=True, blur_ksize=0)
+        sharp_bytes = create_synthetic_image_bytes(
+            1000, 800, add_text=True, blur_ksize=0
+        )
 
-        out_bytes, is_blurry, blur_score = await evaluate_blur_dependency(resized_bytes=sharp_bytes)
+        out_bytes, is_blurry, blur_score = await evaluate_blur_dependency(
+            resized_bytes=sharp_bytes
+        )
 
         assert out_bytes == sharp_bytes
         assert is_blurry is False
@@ -164,9 +204,13 @@ class TestFastAPIDependencies:
 
     async def test_evaluate_blur_dependency_blurry_image(self):
         """Failure / Quality case: Heavy motion/Gaussian blur evaluates to is_blurry = True."""
-        blurry_bytes = create_synthetic_image_bytes(1000, 800, add_text=True, blur_ksize=41)
+        blurry_bytes = create_synthetic_image_bytes(
+            1000, 800, add_text=True, blur_ksize=41
+        )
 
-        out_bytes, is_blurry, blur_score = await evaluate_blur_dependency(resized_bytes=blurry_bytes)
+        out_bytes, is_blurry, blur_score = await evaluate_blur_dependency(
+            resized_bytes=blurry_bytes
+        )
 
         assert out_bytes == blurry_bytes
         assert is_blurry is True
@@ -176,7 +220,9 @@ class TestFastAPIDependencies:
         """Edge case: Unparseable byte stream falls back to blurry = True and 0.0 score safely."""
         bad_bytes = b"random_corrupt_data"
 
-        out_bytes, is_blurry, blur_score = await evaluate_blur_dependency(resized_bytes=bad_bytes)
+        out_bytes, is_blurry, blur_score = await evaluate_blur_dependency(
+            resized_bytes=bad_bytes
+        )
 
         assert out_bytes == bad_bytes
         assert is_blurry is True

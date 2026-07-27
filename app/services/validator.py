@@ -95,6 +95,7 @@ def evaluate_medical_claim_risk(
 
     return flags, min(risk_score, 1.0)
 
+
 def calculate_status_and_reasoning(risk_score: float) -> tuple[str, str]:
     """Applies risk threshold routing rules."""
     if risk_score >= 0.7:

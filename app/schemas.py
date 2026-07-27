@@ -26,7 +26,7 @@ class ThaiIDExtraction(BaseModel):
     # Model confidence assessment
     confidence_score: float = Field(
         default=0.0,
-        description="Confidence score between 0.0 (Uncertain/Blurry) and 1.0 (Certain/Clear) regarding document legibility and extraction accuracy."
+        description="Confidence score between 0.0 (Uncertain/Blurry) and 1.0 (Certain/Clear) regarding document legibility and extraction accuracy.",
     )
 
 
@@ -58,7 +58,7 @@ class MedicalReceiptExtraction(BaseModel):
     # Model confidence assessment
     confidence_score: float = Field(
         default=0.0,
-        description="Confidence score between 0.0 (Uncertain/Blurry) and 1.0 (Certain/Clear) regarding document legibility and extraction accuracy."
+        description="Confidence score between 0.0 (Uncertain/Blurry) and 1.0 (Certain/Clear) regarding document legibility and extraction accuracy.",
     )
 
 
