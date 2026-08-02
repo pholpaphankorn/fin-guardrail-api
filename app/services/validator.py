@@ -2,6 +2,26 @@ from datetime import datetime
 from app.schemas import ThaiIDExtraction, MedicalReceiptExtraction
 
 
+def is_valid_thai_id_checksum(id_number: str) -> bool:
+    """
+    Validates a 13-digit Thai National ID using the Modulus 11 algorithm.
+    Detects single-digit LLM OCR hallucinations and mathematical misreads.
+    """
+    clean_id = "".join(id_number.split())
+
+    if len(clean_id) != 13 or not clean_id.isdigit():
+        return False
+
+    digits = [int(d) for d in clean_id]
+
+    # Calculate Modulus 11 checksum across the first 12 digits
+    total = sum(digits[i] * (13 - i) for i in range(12))
+    expected_check_digit = (11 - (total % 11)) % 10
+
+    # Validate against the 13th digit
+    return digits[12] == expected_check_digit
+
+
 def evaluate_thai_id_risk(data: ThaiIDExtraction) -> tuple[list[str], float]:
     """
     Evaluates risk vectors on parsed Thai ID data using strict rule checks.
@@ -18,13 +38,22 @@ def evaluate_thai_id_risk(data: ThaiIDExtraction) -> tuple[list[str], float]:
         )
         risk_score += 0.5
 
-    # 2. Structural Identity Guardrail: Check length of ID
-    clean_id = "".join(data.id_number.split())  # Strip accidental whitespaces
+    # 2. Structural & Mathematical Identity Guardrails
+    clean_id = "".join(data.id_number.split())
+
+    # Format Check
     if len(clean_id) != 13 or not clean_id.isdigit():
         flags.append(
             "INVALID_ID_NUMBER_FORMAT: Thai ID must be exactly 13 numeric digits."
         )
         risk_score += 0.6
+    # Modulus 11 Checksum Verification (Catches Vision LLM Hallucinations)
+    elif not is_valid_thai_id_checksum(clean_id):
+        flags.append(
+            f"ID_CHECKSUM_FAILED: Extracted ID ({clean_id}) failed Modulus 11 validation. "
+            f"Possible LLM OCR hallucination or invalid ID number sequence."
+        )
+        risk_score += 0.7
 
     # 3. Compliance Guardrail: Expiration Evaluation
     if data.expiry_date.strip().lower() != "lifetime":

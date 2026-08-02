@@ -12,10 +12,10 @@ from app.services.validator import (
 class TestEvaluateThaiIDRisk:
 
     def test_thai_id_happy_case_clean_approval(self):
-        """Happy Case: Perfectly valid Thai ID produces zero flags and 0.0 risk score."""
+        """Happy Case: Perfectly valid Thai ID (with valid Modulus 11 checksum) produces zero flags and 0.0 risk score."""
         future_date = (datetime.now() + timedelta(days=365)).strftime("%Y-%m-%d")
         valid_id = ThaiIDExtraction(
-            id_number="1 2345 67890 12 3",  # Space-separated format
+            id_number="1 2345 67890 12 1",  # Mathematically valid checksum sequence
             first_name_en="TEST",
             last_name_en="Dee",
             date_of_birth="1990-01-01",
@@ -29,9 +29,9 @@ class TestEvaluateThaiIDRisk:
         assert risk_score == 0.0
 
     def test_thai_id_edge_case_lifetime_expiry(self):
-        """Edge Case: 'lifetime' expiry date string is parsed properly without flags."""
+        """Edge Case: 'lifetime' expiry date string with valid checksum is parsed properly without flags."""
         valid_lifetime_id = ThaiIDExtraction(
-            id_number="1234567890123",
+            id_number="1234567890121",  # Valid checksum
             first_name_en="Jane",
             last_name_en="Doe",
             date_of_birth="1950-01-01",
@@ -44,11 +44,28 @@ class TestEvaluateThaiIDRisk:
         assert flags == []
         assert risk_score == 0.0
 
+    def test_thai_id_failed_case_checksum_failure(self):
+        """Failed Case: 13-digit numeric string that fails Modulus 11 check triggers ID_CHECKSUM_FAILED flag."""
+        invalid_checksum_id = ThaiIDExtraction(
+            id_number="1234567890123",  # 13 digits, but check digit 3 should be 1
+            first_name_en="TEST",
+            last_name_en="Dee",
+            date_of_birth="1990-01-01",
+            expiry_date="2030-01-01",
+            confidence_score=0.95,
+        )
+
+        flags, risk_score = evaluate_thai_id_risk(invalid_checksum_id)
+
+        assert len(flags) == 1
+        assert "ID_CHECKSUM_FAILED" in flags[0]
+        assert risk_score == 0.7
+
     def test_thai_id_failed_case_expired_and_low_confidence(self):
         """Failed Case: Expired card + low confidence accumulates risk flags."""
         past_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
         expired_id = ThaiIDExtraction(
-            id_number="1234567890123",
+            id_number="1234567890121",  # Valid checksum
             first_name_en="John",
             last_name_en="Doe",
             date_of_birth="1980-01-01",
