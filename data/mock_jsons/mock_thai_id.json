@@ -1,8 +1,27 @@
 {
-  "id_number": "0000000000000",
-  "first_name_en": "TEST",
-  "last_name_en": "USER",
-  "date_of_birth": "1990-01-01",
-  "expiry_date": "2030-01-01",
-  "confidence_score": 0.95
+  "id_number": {
+    "value": "0000000000000",
+    "confidence": 0.98,
+    "reasoning": "Crisp font with high visual contrast and zero glare."
+  },
+  "first_name_en": {
+    "value": "TEST",
+    "confidence": 0.95,
+    "reasoning": "Clear English text printing."
+  },
+  "last_name_en": {
+    "value": "USER",
+    "confidence": 0.95,
+    "reasoning": "Clear English text printing."
+  },
+  "date_of_birth": {
+    "value": "1990-01-01",
+    "confidence": 0.92,
+    "reasoning": "Date readable with minor soft focus."
+  },
+  "expiry_date": {
+    "value": "2030-01-01",
+    "confidence": 0.96,
+    "reasoning": "Expiration date clearly legible."
+  }
 }

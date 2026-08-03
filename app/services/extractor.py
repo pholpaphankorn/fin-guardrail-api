@@ -139,7 +139,14 @@ async def extract_thai_id(file_bytes: bytes) -> Optional[ThaiIDExtraction]:
         "You MUST use these exact keys in the root of the JSON object: "
         "'id_number' (the 13 digit string), 'first_name_en', 'last_name_en', "
         "'date_of_birth' (YYYY-MM-DD), 'expiry_date' (YYYY-MM-DD), and "
-        "'confidence_score' (float between 0.0 and 1.0 representing your confidence in the clarity and accuracy of the extracted text).\n"
+        "For EACH field, you MUST return an object containing:\n"
+        "1. 'value': The extracted string value (e.g., '1234567890121' for id_number, or 'YYYY-MM-DD' / 'Lifetime' for expiry_date). Set to null if completely missing or unreadable.\n"
+        "2. 'confidence': A float between 0.0 and 1.0 indicating your confidence in the clarity and accuracy of the extracted text:\n"
+        "   - 0.9-1.0: Crystal clear, crisp text with zero ambiguity.\n"
+        "   - 0.7-0.89: Slightly faint, small font, or light glare, but legible.\n"
+        "   - 0.1-0.69: Severely blurry, partially cropped, obstructed, or uncertain reading.\n"
+        "   - 0.0-0.09: Text is completely illegible or missing from document.\n"
+        "3. 'reasoning': A brief 1-sentence note explaining why confidence is below 1.0 (e.g., 'Slight glare over expiration date', 'Crisp text')."
         "Do not nest fields inside objects like 'name' or 'english'."
     )
     return await _call_vision_model(
@@ -161,7 +168,14 @@ async def extract_medical_receipt(
         "- 'receipt_date': The date of service or issue formatted strictly as YYYY-MM-DD.\n"
         "- 'items': An array/list of individual medical services or medications. Each object in this list MUST contain exactly two keys: 'description' (string) and 'cost' (number/float).\n"
         "- 'total_amount': The absolute total balance stated on the invoice as a single number/float.\n"
-        "- 'confidence_score': A float number between 0.0 and 1.0 representing your confidence in the clarity and accuracy of the extracted text.\n\n"
+        "For EACH field, you MUST return an object containing:\n"
+        "1. 'value': The extracted string value (e.g., '1234567890121' for id_number, or 'YYYY-MM-DD' / 'Lifetime' for expiry_date). Set to null if completely missing or unreadable.\n"
+        "2. 'confidence': A float between 0.0 and 1.0 indicating legibility and clarity:\n"
+        "   - 0.9-1.0: Crystal clear, crisp text with zero ambiguity.\n"
+        "   - 0.7-0.89: Slightly faint, small font, or light glare, but legible.\n"
+        "   - 0.1-0.69: Severely blurry, partially cropped, obstructed, or uncertain reading.\n"
+        "   - 0.0-0.09: Text is completely illegible or missing from document.\n"
+        "3. 'reasoning': A brief 1-sentence note explaining why confidence is below 1.0 (e.g., 'Slight glare over expiration date', 'Crisp text')."
         "Do not invent outer objects or nest the root fields. Extract numbers as clean floats without currency symbols (e.g., use 500.0 instead of '500 THB')."
     )
     return await _call_vision_model(

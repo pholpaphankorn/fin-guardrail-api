@@ -30,16 +30,31 @@ def evaluate_thai_id_risk(data: ThaiIDExtraction) -> tuple[list[str], float]:
     flags = []
     risk_score = 0.0
 
-    # 1. Vision LLM Confidence Guardrail
-    if data.confidence_score < 0.75:
+    # 1. Targeted Field Confidence Check: Critical ID Number
+    if data.id_number.confidence < 0.85:
+        reasoning_str = (
+            f" Note: {data.id_number.reasoning}" if data.id_number.reasoning else ""
+        )
         flags.append(
-            f"LOW_MODEL_CONFIDENCE: Vision LLM extraction confidence ({data.confidence_score:.2f}) "
-            f"is below safety threshold (0.75)."
+            f"LOW_ID_CONFIDENCE: Vision LLM is uncertain about the ID number "
+            f"({data.id_number.confidence:.2f}).{reasoning_str}"
         )
         risk_score += 0.5
 
-    # 2. Structural & Mathematical Identity Guardrails
-    clean_id = "".join(data.id_number.split())
+    # 2. Critical Expiry Date Confidence
+    if data.expiry_date.confidence < 0.70:
+        reasoning_str = (
+            f" Note: {data.expiry_date.reasoning}" if data.expiry_date.reasoning else ""
+        )
+        flags.append(
+            f"LOW_EXPIRY_CONFIDENCE: Model struggled reading expiry date "
+            f"({data.expiry_date.confidence:.2f}).{reasoning_str}"
+        )
+        risk_score += 0.3
+
+    # 3. Structural & Mathematical Identity Guardrails
+    raw_id = data.id_number.value or ""
+    clean_id = "".join(raw_id.split())
 
     # Format Check
     if len(clean_id) != 13 or not clean_id.isdigit():
@@ -55,15 +70,16 @@ def evaluate_thai_id_risk(data: ThaiIDExtraction) -> tuple[list[str], float]:
         )
         risk_score += 0.7
 
-    # 3. Compliance Guardrail: Expiration Evaluation
-    if data.expiry_date.strip().lower() != "lifetime":
+    # 4. Compliance Guardrail: Expiration Evaluation
+    raw_expiry = data.expiry_date.value or ""
+    if raw_expiry.strip().lower() != "lifetime":
         try:
-            expiry_dt = datetime.strptime(data.expiry_date, "%Y-%m-%d").date()
+            expiry_dt = datetime.strptime(raw_expiry, "%Y-%m-%d").date()
             current_dt = datetime.now().date()
 
             if expiry_dt < current_dt:
                 flags.append(
-                    f"DOCUMENT_EXPIRED: Identification card expired on {data.expiry_date}"
+                    f"DOCUMENT_EXPIRED: Identification card expired on {raw_expiry}"
                 )
                 risk_score += 0.8
         except ValueError:
@@ -84,20 +100,36 @@ def evaluate_medical_claim_risk(
     flags = []
     risk_score = 0.0
 
-    # 1. Vision LLM Confidence Guardrail
-    if data.confidence_score < 0.75:
-        flags.append(
-            f"LOW_MODEL_CONFIDENCE: Vision LLM extraction confidence ({data.confidence_score:.2f}) "
-            f"is below safety threshold (0.75)."
+    # 1. Vision LLM Field-Level Confidence Guardrail
+    total_confidence = data.total_amount.confidence
+    if total_confidence < 0.80:
+        reasoning_str = (
+            f" Note: {data.total_amount.reasoning}"
+            if data.total_amount.reasoning
+            else ""
         )
-        risk_score += 0.5
+        flags.append(
+            f"LOW_TOTAL_CONFIDENCE: Vision LLM extraction confidence for total_amount ({total_confidence:.2f}) "
+            f"is below safety threshold (0.80).{reasoning_str}"
+        )
+        risk_score += 0.4
+
+    # Check for any low-confidence itemized costs
+    low_confidence_items = [item for item in data.items if item.cost.confidence < 0.75]
+    if low_confidence_items:
+        flags.append(
+            f"LOW_ITEM_CONFIDENCE: Found {len(low_confidence_items)} line item(s) "
+            f"with low extraction confidence (<0.75)."
+        )
+        risk_score += 0.3
 
     # 2. Financial Guardrail: Mathematical Line-Item Verification
-    calculated_total = sum(item.cost for item in data.items)
+    calculated_total = sum(item.cost.value or 0.0 for item in data.items)
+    stated_total = data.total_amount.value or 0.0
 
-    if abs(calculated_total - data.total_amount) > 0.01:
+    if abs(calculated_total - stated_total) > 0.01:
         flags.append(
-            f"ARITHMETIC_MISMATCH: Stated invoice total ({data.total_amount}) does not match "
+            f"ARITHMETIC_MISMATCH: Stated invoice total ({stated_total}) does not match "
             f"the calculated sum of line items ({calculated_total})."
         )
         risk_score += 0.5
@@ -114,10 +146,11 @@ def evaluate_medical_claim_risk(
     ]
 
     for item in data.items:
-        desc_lower = item.description.lower()
+        desc_str = item.description.value or ""
+        desc_lower = desc_str.lower()
         if any(keyword in desc_lower for keyword in high_risk_keywords):
             flags.append(
-                f"HIGH_RISK_ITEM_FOUND: Claim item '{item.description}' matches non-covered coverage policies."
+                f"HIGH_RISK_ITEM_FOUND: Claim item '{desc_str}' matches non-covered coverage policies."
             )
             risk_score += 0.4
             break

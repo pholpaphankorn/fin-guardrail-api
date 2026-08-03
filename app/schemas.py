@@ -1,65 +1,53 @@
+from typing import Generic, List, Optional, TypeVar
 from pydantic import BaseModel, Field
-from typing import List, Optional
+
+T = TypeVar("T")
 
 
-# --- Onboarding / KYC Models ---
+class ExtractedField(BaseModel, Generic[T]):
+    value: Optional[T] = Field(default=None, description="The extracted value.")
+    confidence: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Confidence score (0.0 to 1.0) for this specific field.",
+    )
+    reasoning: Optional[str] = Field(
+        default=None,
+        description="Brief note if text was faint, partially cut off, or missing.",
+    )
+
+
+# --- Refactored Onboarding Model ---
 class ThaiIDExtraction(BaseModel):
-    # Required field (actively validated by rule checks)
-    id_number: str = Field(description="The 13-digit Thai National ID number")
-
-    # Optional fields (extracted if visible, but won't crash parsing if missing)
-    first_name_en: Optional[str] = Field(
-        default=None, description="First name in English"
+    id_number: ExtractedField[str] = Field(
+        description="13-digit Thai National ID number."
     )
-    last_name_en: Optional[str] = Field(
-        default=None, description="Last name in English"
+    first_name_en: ExtractedField[Optional[str]] = Field(
+        default_factory=ExtractedField, description="First name in English."
     )
-    date_of_birth: Optional[str] = Field(
+    last_name_en: ExtractedField[Optional[str]] = Field(
+        default_factory=ExtractedField, description="Last name in English."
+    )
+    date_of_birth: ExtractedField[Optional[str]] = Field(
         default=None, description="Date of birth in YYYY-MM-DD format"
     )
-
-    # Required field (actively validated for expiry risk)
-    expiry_date: str = Field(
-        description="Expiry date in YYYY-MM-DD format or 'Lifetime'"
-    )
-
-    # Model confidence assessment
-    confidence_score: float = Field(
-        default=0.0,
-        description="Confidence score between 0.0 (Uncertain/Blurry) and 1.0 (Certain/Clear) regarding document legibility and extraction accuracy.",
+    expiry_date: ExtractedField[str] = Field(
+        description="Expiry date in YYYY-MM-DD format or 'Lifetime'."
     )
 
 
-# --- Claims Models ---
+# --- Refactored Claims Model ---
 class LineItem(BaseModel):
-    description: str = Field(
-        description="Itemized description of the medical service or medicine"
-    )
-    cost: float = Field(description="Cost of this individual item")
+    description: ExtractedField[str] = Field(description="Item description.")
+    cost: ExtractedField[float] = Field(description="Cost of this individual item.")
 
 
 class MedicalReceiptExtraction(BaseModel):
-    # Optional field (informational, not strictly validated in financial balance)
-    hospital_name: Optional[str] = Field(
-        default=None, description="Name of the hospital or medical clinic"
-    )
-
-    # Optional date field
-    receipt_date: Optional[str] = Field(
-        default=None, description="Date the receipt was issued in YYYY-MM-DD format"
-    )
-
-    # Required fields (used directly in arithmetic math validation)
-    items: List[LineItem] = Field(
-        description="List of all itemized charges on the receipt"
-    )
-    total_amount: float = Field(description="The total balance stated on the receipt")
-
-    # Model confidence assessment
-    confidence_score: float = Field(
-        default=0.0,
-        description="Confidence score between 0.0 (Uncertain/Blurry) and 1.0 (Certain/Clear) regarding document legibility and extraction accuracy.",
-    )
+    hospital_name: ExtractedField[Optional[str]] = Field(default_factory=ExtractedField)
+    receipt_date: ExtractedField[Optional[str]] = Field(default_factory=ExtractedField)
+    items: List[LineItem] = Field(description="List of charges.")
+    total_amount: ExtractedField[float] = Field(description="Total balance.")
 
 
 # --- Final System Response Model ---

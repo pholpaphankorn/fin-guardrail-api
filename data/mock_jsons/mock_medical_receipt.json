@@ -1,11 +1,55 @@
 {
-  "hospital_name": "Example Health Test Clinic",
-  "receipt_date": "2026-01-01",
+  "hospital_name": {
+    "value": "Example Health Test Clinic",
+    "confidence": 0.95,
+    "reasoning": "Header text clean and sharp."
+  },
+  "receipt_date": {
+    "value": "2026-01-01",
+    "confidence": 0.90,
+    "reasoning": "Date clearly visible on thermal print."
+  },
   "items": [
-    {"description": "Consultation", "cost": 800.0},
-    {"description": "Medication", "cost": 150.0},
-    {"description": "Laboratory test", "cost": 1200.0}
+    {
+      "description": {
+        "value": "Consultation",
+        "confidence": 0.95,
+        "reasoning": "Clear line item description."
+      },
+      "cost": {
+        "value": 800.0,
+        "confidence": 0.94,
+        "reasoning": "Item cost clean and aligned."
+      }
+    },
+    {
+      "description": {
+        "value": "Medication",
+        "confidence": 0.92,
+        "reasoning": "Legible medication item text."
+      },
+      "cost": {
+        "value": 150.0,
+        "confidence": 0.93,
+        "reasoning": "Item cost clearly readable."
+      }
+    },
+    {
+      "description": {
+        "value": "Laboratory test",
+        "confidence": 0.90,
+        "reasoning": "Clean line item."
+      },
+      "cost": {
+        "value": 1200.0,
+        "confidence": 0.92,
+        "reasoning": "Numeric digits clear."
+      }
+    }
   ],
-  "total_amount": 2150.0,
-  "confidence_score": 0.92
+  "total_amount": {
+    "value": 2150.0,
+    "confidence": 0.96,
+    "reasoning": "Bold total balance amount is crisp and unambiguous."
+  }
 }
