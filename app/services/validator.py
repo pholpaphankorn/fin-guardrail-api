@@ -2,6 +2,8 @@ from datetime import datetime
 from typing import Any, Tuple
 from app.schemas import ExtractedField, ThaiIDExtraction, MedicalReceiptExtraction
 
+MIN_CONFIDENCE = 0.9
+
 
 def is_valid_thai_id_checksum(id_number: str) -> bool:
     """
@@ -27,7 +29,7 @@ def check_field_risk(
     field: ExtractedField[Any],
     field_name: str,
     weight: float,
-    min_confidence: float = 0.80,
+    min_confidence: float = MIN_CONFIDENCE,
     is_boolean_check: bool = False,
 ) -> Tuple[list[str], float]:
     """
@@ -69,28 +71,30 @@ def evaluate_thai_id_risk(data: ThaiIDExtraction) -> tuple[list[str], float]:
     FIELD_CONFIGS = [
         # (field_object, field_name, weight, min_confidence, is_boolean)
         # --- Visual Checks ---
-        (data.visual_checks.has_card_title, "has_card_title", 1, 0.85, True),
+        (data.visual_checks.has_card_title,
+         "has_card_title", 1, MIN_CONFIDENCE, True),
         (data.visual_checks.has_garuda_emblem,
-         "has_garuda_emblem", 0.30, 0.80, True),
-        (data.visual_checks.has_microchip, "has_microchip", 0.40, 0.80, True),
+         "has_garuda_emblem", 0.30, MIN_CONFIDENCE, True),
+        (data.visual_checks.has_microchip,
+         "has_microchip", 0.40, MIN_CONFIDENCE, True),
         (data.visual_checks.has_portrait_photo,
-         "has_portrait_photo", 1, 0.85, True),
-        (data.visual_checks.has_barcode, "has_barcode", 0.20, 0.70, True),
+         "has_portrait_photo", 1, MIN_CONFIDENCE, True),
+        (data.visual_checks.has_barcode, "has_barcode", 0.20, MIN_CONFIDENCE, True),
 
         # --- Core Critical Fields ---
-        (data.id_number, "id_number", 1, 0.85, False),
-        (data.expiry_date, "expiry_date", 1, 0.85, False),
+        (data.id_number, "id_number", 1, MIN_CONFIDENCE, False),
+        (data.expiry_date, "expiry_date", 1, MIN_CONFIDENCE, False),
 
         # --- Secondary Personal Info ---
-        (data.first_name_th, "first_name_th", 1, 0.75, False),
-        (data.last_name_th, "last_name_th", 1, 0.75, False),
-        (data.first_name_en, "first_name_en", 1, 0.70, False),
-        (data.last_name_en, "last_name_en", 1, 0.70, False),
-        (data.date_of_birth, "date_of_birth", 1, 0.75, False),
-        (data.address_th, "address_th", 1, 0.70, False),
-        (data.issue_date, "issue_date", 0.15, 0.70, False),
-        (data.issuing_officer_th, "issuing_officer_th", 0.10, 0.65, False),
-        (data.religion_th, "religion_th", 0.05, 0.60, False),
+        (data.first_name_th, "first_name_th", 1, MIN_CONFIDENCE, False),
+        (data.last_name_th, "last_name_th", 1, MIN_CONFIDENCE, False),
+        (data.first_name_en, "first_name_en", 1, MIN_CONFIDENCE, False),
+        (data.last_name_en, "last_name_en", 1, MIN_CONFIDENCE, False),
+        (data.date_of_birth, "date_of_birth", 1, MIN_CONFIDENCE, False),
+        (data.address_th, "address_th", 1, MIN_CONFIDENCE, False),
+        (data.issue_date, "issue_date", 0.15, MIN_CONFIDENCE, False),
+        (data.issuing_officer_th, "issuing_officer_th", 0.10, MIN_CONFIDENCE, False),
+        (data.religion_th, "religion_th", 0.05, MIN_CONFIDENCE, False),
     ]
 
     # 1. Run Standardized Field Evaluation Loop
