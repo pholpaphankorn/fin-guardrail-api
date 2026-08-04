@@ -43,12 +43,16 @@ def check_field_risk(
     # Case A: Value Failure (Missing text or False visual check)
     if is_boolean_check and field.value is False:
         flags.append(
-            f"MISSING_VISUAL_ANCHOR: Visual check '{field_name}' failed.{reasoning_suffix}")
+            f"MISSING_VISUAL_ANCHOR: Visual check '{field_name}' failed.{reasoning_suffix}"
+        )
         penalty += weight  # Full field weight penalty
 
-    elif not is_boolean_check and (field.value is None or str(field.value).strip() == ""):
+    elif not is_boolean_check and (
+        field.value is None or str(field.value).strip() == ""
+    ):
         flags.append(
-            f"MISSING_FIELD_VALUE: Field '{field_name}' could not be extracted.{reasoning_suffix}")
+            f"MISSING_FIELD_VALUE: Field '{field_name}' could not be extracted.{reasoning_suffix}"
+        )
         penalty += weight  # Full field weight penalty
 
     # Case B: Low Confidence Penalty (Value exists, but Vision LLM is uncertain)
@@ -71,20 +75,26 @@ def evaluate_thai_id_risk(data: ThaiIDExtraction) -> tuple[list[str], float]:
     FIELD_CONFIGS = [
         # (field_object, field_name, weight, min_confidence, is_boolean)
         # --- Visual Checks ---
-        (data.visual_checks.has_card_title,
-         "has_card_title", 1, MIN_CONFIDENCE, True),
-        (data.visual_checks.has_garuda_emblem,
-         "has_garuda_emblem", 0.30, MIN_CONFIDENCE, True),
-        (data.visual_checks.has_microchip,
-         "has_microchip", 0.40, MIN_CONFIDENCE, True),
-        (data.visual_checks.has_portrait_photo,
-         "has_portrait_photo", 1, MIN_CONFIDENCE, True),
+        (data.visual_checks.has_card_title, "has_card_title", 1, MIN_CONFIDENCE, True),
+        (
+            data.visual_checks.has_garuda_emblem,
+            "has_garuda_emblem",
+            0.30,
+            MIN_CONFIDENCE,
+            True,
+        ),
+        (data.visual_checks.has_microchip, "has_microchip", 0.40, MIN_CONFIDENCE, True),
+        (
+            data.visual_checks.has_portrait_photo,
+            "has_portrait_photo",
+            1,
+            MIN_CONFIDENCE,
+            True,
+        ),
         (data.visual_checks.has_barcode, "has_barcode", 0.20, MIN_CONFIDENCE, True),
-
         # --- Core Critical Fields ---
         (data.id_number, "id_number", 1, MIN_CONFIDENCE, False),
         (data.expiry_date, "expiry_date", 1, MIN_CONFIDENCE, False),
-
         # --- Secondary Personal Info ---
         (data.first_name_th, "first_name_th", 1, MIN_CONFIDENCE, False),
         (data.last_name_th, "last_name_th", 1, MIN_CONFIDENCE, False),
@@ -115,7 +125,8 @@ def evaluate_thai_id_risk(data: ThaiIDExtraction) -> tuple[list[str], float]:
     if clean_id:
         if len(clean_id) != 13 or not clean_id.isdigit():
             flags.append(
-                "INVALID_ID_NUMBER_FORMAT: Thai ID must be exactly 13 numeric digits.")
+                "INVALID_ID_NUMBER_FORMAT: Thai ID must be exactly 13 numeric digits."
+            )
             risk_score += 0.6
         elif not is_valid_thai_id_checksum(clean_id):
             flags.append(
@@ -130,7 +141,8 @@ def evaluate_thai_id_risk(data: ThaiIDExtraction) -> tuple[list[str], float]:
             expiry_dt = datetime.strptime(raw_expiry, "%Y-%m-%d").date()
             if expiry_dt < datetime.now().date():
                 flags.append(
-                    f"DOCUMENT_EXPIRED: Identification card expired on {raw_expiry}.")
+                    f"DOCUMENT_EXPIRED: Identification card expired on {raw_expiry}."
+                )
                 risk_score += 0.8
         except ValueError:
             flags.append("DATE_PARSING_ERROR: Expiry date format invalid.")
@@ -163,8 +175,7 @@ def evaluate_medical_claim_risk(
         risk_score += 0.4
 
     # Check for any low-confidence itemized costs
-    low_confidence_items = [
-        item for item in data.items if item.cost.confidence < 0.75]
+    low_confidence_items = [item for item in data.items if item.cost.confidence < 0.75]
     if low_confidence_items:
         flags.append(
             f"LOW_ITEM_CONFIDENCE: Found {len(low_confidence_items)} line item(s) "

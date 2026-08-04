@@ -91,8 +91,7 @@ async def evaluate_single_document(img_name: str) -> Dict[str, Any]:
     out_path = os.path.join(OUTPUT_DIR, f"{base_name}.json")
 
     if not os.path.exists(gt_path):
-        print(
-            f"⚠️  Skipping [{img_name}]: Ground truth file missing at {gt_path}")
+        print(f"⚠️  Skipping [{img_name}]: Ground truth file missing at {gt_path}")
         return {"skipped": True}
 
     # Load Ground Truth JSON
@@ -110,8 +109,9 @@ async def evaluate_single_document(img_name: str) -> Dict[str, Any]:
         print(f"❌ [{img_name}] Vision LLM returned None (Extraction Failed)")
         # Save null/empty state to output JSON for debugging
         with open(out_path, "w", encoding="utf-8") as f:
-            json.dump({"error": "EXTRACTION_FAILED_OR_NONE"},
-                      f, indent=2, ensure_ascii=False)
+            json.dump(
+                {"error": "EXTRACTION_FAILED_OR_NONE"}, f, indent=2, ensure_ascii=False
+            )
         return {"accuracy": 0.0, "total_fields": 1, "passed_fields": 0}
 
     # Save LLM extraction result to output folder
@@ -129,8 +129,9 @@ async def evaluate_single_document(img_name: str) -> Dict[str, Any]:
 
     for check_key, gt_check_obj in gt_visual_checks.items():
         total_count += 1
-        ext_check_obj = getattr(
-            ext_visual_checks, check_key, None) if ext_visual_checks else None
+        ext_check_obj = (
+            getattr(ext_visual_checks, check_key, None) if ext_visual_checks else None
+        )
 
         passed, reason = evaluate_field(ext_check_obj, gt_check_obj)
         field_results[f"visual_checks.{check_key}"] = (passed, reason)
@@ -156,7 +157,8 @@ async def evaluate_single_document(img_name: str) -> Dict[str, Any]:
     print(f"\n📄 Document: {img_name}")
     print(f"   Saved Output: {out_path}")
     print(
-        f"   Accuracy: {doc_accuracy * 100:.1f}% ({passed_count}/{total_count} fields passed)")
+        f"   Accuracy: {doc_accuracy * 100:.1f}% ({passed_count}/{total_count} fields passed)"
+    )
     for field, (passed, reason) in field_results.items():
         if not passed:
             print(f"   ↳ ❌ {field}: {reason}")
@@ -177,13 +179,16 @@ async def run_all_evals():
         raise FileNotFoundError(f"Input directory does not exist: {INPUT_DIR}")
     if not os.path.exists(GROUND_TRUTH_DIR):
         raise FileNotFoundError(
-            f"Ground truth directory does not exist: {GROUND_TRUTH_DIR}")
+            f"Ground truth directory does not exist: {GROUND_TRUTH_DIR}"
+        )
 
     # Automatically create output directory if missing
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     image_files = [
-        f for f in os.listdir(INPUT_DIR) if f.lower().endswith((".jpg", ".jpeg", ".png"))
+        f
+        for f in os.listdir(INPUT_DIR)
+        if f.lower().endswith((".jpg", ".jpeg", ".png"))
     ]
 
     if not image_files:
@@ -191,8 +196,7 @@ async def run_all_evals():
         return
 
     print("=" * 60)
-    print(
-        f"🚀 Starting LLM Evaluation Suite across {len(image_files)} image(s)...")
+    print(f"🚀 Starting LLM Evaluation Suite across {len(image_files)} image(s)...")
     print(f"📁 Output files will be saved to: {OUTPUT_DIR}")
     print("=" * 60)
 
@@ -212,8 +216,7 @@ async def run_all_evals():
     # Overall Summary Report
     if total_system_fields > 0:
         overall_field_acc = (passed_system_fields / total_system_fields) * 100
-        avg_doc_acc = (sum(document_accuracies) /
-                       len(document_accuracies)) * 100
+        avg_doc_acc = (sum(document_accuracies) / len(document_accuracies)) * 100
 
         print("\n" + "=" * 60)
         print("🎯 EVALUATION SUMMARY REPORT")

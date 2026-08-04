@@ -110,13 +110,11 @@ async def _call_vision_model(
                 options={"temperature": 0.0},
             )
 
-            raw_retry_content = cleanup_raw_content(
-                retry_response.message.content)
+            raw_retry_content = cleanup_raw_content(retry_response.message.content)
             return target_schema.model_validate_json(raw_retry_content)
 
         except (ValidationError, json.JSONDecodeError, ValueError) as final_err:
-            logger.error(
-                f"[Attempt 2 Failed] Retry exhausted. Error: {final_err}")
+            logger.error(f"[Attempt 2 Failed] Retry exhausted. Error: {final_err}")
             return None
 
         except Exception as e:
