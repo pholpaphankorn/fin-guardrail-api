@@ -110,11 +110,13 @@ async def _call_vision_model(
                 options={"temperature": 0.0},
             )
 
-            raw_retry_content = cleanup_raw_content(retry_response.message.content)
+            raw_retry_content = cleanup_raw_content(
+                retry_response.message.content)
             return target_schema.model_validate_json(raw_retry_content)
 
         except (ValidationError, json.JSONDecodeError, ValueError) as final_err:
-            logger.error(f"[Attempt 2 Failed] Retry exhausted. Error: {final_err}")
+            logger.error(
+                f"[Attempt 2 Failed] Retry exhausted. Error: {final_err}")
             return None
 
         except Exception as e:
@@ -135,19 +137,34 @@ async def _call_vision_model(
 async def extract_thai_id(file_bytes: bytes) -> Optional[ThaiIDExtraction]:
     """Extracts Thai National ID card fields into structured JSON from image bytes."""
     prompt = (
-        "Analyze the image of the Thai National ID Card and extract the fields into JSON. "
-        "You MUST use these exact keys in the root of the JSON object: "
-        "'id_number' (the 13 digit string), 'first_name_en', 'last_name_en', "
-        "'date_of_birth' (YYYY-MM-DD), 'expiry_date' (YYYY-MM-DD), and "
-        "For EACH field, you MUST return an object containing:\n"
-        "1. 'value': The extracted string value (e.g., '1234567890121' for id_number, or 'YYYY-MM-DD' / 'Lifetime' for expiry_date). Set to null if completely missing or unreadable.\n"
-        "2. 'confidence': A float between 0.0 and 1.0 indicating your confidence in the clarity and accuracy of the extracted text:\n"
-        "   - 0.9-1.0: Crystal clear, crisp text with zero ambiguity.\n"
+        "Analyze the image of the Thai National ID Card and extract the fields into JSON.\n\n"
+        "### REQUIRED JSON STRUCTURE\n"
+        "1. 'visual_checks': An object performing structural verification with exact boolean keys:\n"
+        "   - 'has_card_title': true if header 'บัตรประจำตัวประชาชน' or 'Thai National ID Card' is visible.\n"
+        "   - 'has_garuda_emblem': true if official Garuda emblem on top-left is visible.\n"
+        "   - 'has_microchip': true if metallic smart chip on middle-left is visible.\n"
+        "   - 'has_portrait_photo': true if holder's photo on bottom-right side is visible.\n"
+        "   - 'has_barcode': true if vertical barcode on left margin is visible.\n"
+        "   For each check, return 'value' (boolean), 'confidence' (0.0 to 1.0), and 'reasoning' (brief note).\n\n"
+        "2. Dynamic Text Fields at Root Level:\n"
+        "   - 'id_number': 13-digit Thai ID number string.\n"
+        "   - 'first_name_th', 'last_name_th': Name in Thai.\n"
+        "   - 'first_name_en', 'last_name_en': Name in English.\n"
+        "   - 'date_of_birth': Formatted strictly as YYYY-MM-DD.\n"
+        "   - 'address_th': Full address in Thai.\n"
+        "   - 'issue_date': Date of issue formatted strictly as YYYY-MM-DD.\n"
+        "   - 'expiry_date': Date of expiry formatted strictly as YYYY-MM-DD or 'Lifetime'.\n"
+        "   - 'issuing_officer_th': Issuing officer name/title under the official stamp.\n"
+        "   - 'religion_th': Stated religion in Thai (e.g., 'พุทธ', 'คริสต์', 'อิสลาม'). Set value to null if omitted/not listed.\n\n"
+        "### FIELD OBJECT FORMAT\n"
+        "For EVERY field above, you MUST return an object containing:\n"
+        "1. 'value': The extracted value (boolean for visual_checks, string for text fields). Set to null if completely unreadable or missing.\n"
+        "2. 'confidence': A float between 0.0 and 1.0 indicating clarity and legibility:\n"
+        "   - 0.9-1.0: Crystal clear, crisp text/feature with zero ambiguity.\n"
         "   - 0.7-0.89: Slightly faint, small font, or light glare, but legible.\n"
-        "   - 0.1-0.69: Severely blurry, partially cropped, obstructed, or uncertain reading.\n"
-        "   - 0.0-0.09: Text is completely illegible or missing from document.\n"
-        "3. 'reasoning': A brief 1-sentence note explaining why confidence is below 1.0 (e.g., 'Slight glare over expiration date', 'Crisp text')."
-        "Do not nest fields inside objects like 'name' or 'english'."
+        "   - 0.1-0.69: Severely blurry, partially cut off, obscured, or uncertain.\n"
+        "   - 0.0-0.09: Text or visual feature is completely missing/illegible.\n"
+        "3. 'reasoning': A brief 1-sentence note explaining why confidence is below 1.0."
     )
     return await _call_vision_model(
         file_bytes=file_bytes,
