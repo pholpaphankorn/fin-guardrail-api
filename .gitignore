@@ -222,3 +222,5 @@ venv/
 __pycache__/
 *.pyc
 .DS_Store
+
+tests/evals/output
