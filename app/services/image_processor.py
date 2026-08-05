@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 from fastapi import UploadFile, File, HTTPException, Depends
 
-DEFAULT_BLUR_THRESHOLD = 100.0
+DEFAULT_BLUR_THRESHOLD = 50.0
 MAX_IMAGE_DIMENSION = 1920
 
 
@@ -27,13 +27,39 @@ def resize_image_if_needed(
 
 
 def evaluate_image_blur(
-    image_gray: np.ndarray, threshold: float = DEFAULT_BLUR_THRESHOLD
+    image_gray: np.ndarray,
+    threshold: float = DEFAULT_BLUR_THRESHOLD,
+    grid_size: int = 4,
 ) -> tuple[bool, float]:
-    """Evaluates image sharpness using the Laplacian Variance method on a grayscale image array."""
-    blur_score = float(cv2.Laplacian(image_gray, cv2.CV_64F).var())
+    """Evaluates sharpness on the top 30% highest-variance grid patches.
+
+    Splits the image into a grid (e.g. 4x4) and calculates Laplacian variance per patch.
+    Averages only the top sharpest patches where high-contrast text lives, automatically
+    ignoring smooth background surfaces (tables, desks, whitespace) regardless of card framing.
+    """
+    h, w = image_gray.shape[:2]
+    patch_h, patch_w = h // grid_size, w // grid_size
+    scores = []
+
+    for row in range(grid_size):
+        for col in range(grid_size):
+            y1, y2 = row * patch_h, (row + 1) * patch_h
+            x1, x2 = col * patch_w, (col + 1) * patch_w
+            patch = image_gray[y1:y2, x1:x2]
+
+            if patch.size > 0:
+                scores.append(float(cv2.Laplacian(patch, cv2.CV_64F).var()))
+
+    if not scores:
+        return True, 0.0
+
+    # Sort descending and average top 30% patches (where card text/edges are concentrated)
+    scores.sort(reverse=True)
+    top_k = max(1, int(len(scores) * 0.30))
+    blur_score = float(np.mean(scores[:top_k]))
+
     is_blurry = blur_score < threshold
     return is_blurry, blur_score
-
 
 # --- FastAPI Dependencies ---
 
@@ -52,7 +78,8 @@ async def get_resized_image_bytes(file: UploadFile = File(...)) -> bytes:
 
     file_bytes = await file.read()
     if not file_bytes:
-        raise HTTPException(status_code=400, detail="The uploaded file is empty.")
+        raise HTTPException(
+            status_code=400, detail="The uploaded file is empty.")
 
     nparr = np.frombuffer(file_bytes, np.uint8)
     image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
@@ -62,7 +89,8 @@ async def get_resized_image_bytes(file: UploadFile = File(...)) -> bytes:
             status_code=400, detail="Corrupted or unreadable image file."
         )
 
-    resized_image, was_resized = resize_image_if_needed(image, MAX_IMAGE_DIMENSION)
+    resized_image, was_resized = resize_image_if_needed(
+        image, MAX_IMAGE_DIMENSION)
 
     if was_resized:
         ext = ".jpg" if file.filename.lower().endswith((".jpg", ".jpeg")) else ".png"

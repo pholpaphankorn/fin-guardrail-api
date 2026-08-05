@@ -277,3 +277,41 @@ class TestRealDocumentPipeline:
         assert (
             is_blurry is False
         ), f"Real ID card flagged as blurry in pipeline! Score: {blur_score:.2f} (Threshold: {DEFAULT_BLUR_THRESHOLD})"
+
+    async def test_real_blurry_medical_receipt_pipeline(self):
+        """Tests the image processor pipeline on a genuinely blurry sample image.
+
+        Verifies that out-of-focus or motion-blurred document photos correctly evaluate to is_blurry = True.
+        """
+        image_path = os.path.join(
+            "data", "mock_docs", "thai_medical_receipt", "thai_medical_receipt.jpeg"
+        )
+
+        if not os.path.exists(image_path):
+            pytest.skip(f"Real test image missing at: {image_path}")
+
+        # 1. Read real file bytes from disk
+        with open(image_path, "rb") as f:
+            file_bytes = f.read()
+
+        upload_file = create_mock_upload_file(
+            file_bytes, "thai_medical_receipt.jpeg")
+
+        # 2. Pass through pipeline (Resize -> Blur check)
+        resized_bytes = await get_resized_image_bytes(upload_file)
+        out_bytes, is_blurry, blur_score = await evaluate_blur_dependency(
+            resized_bytes=resized_bytes
+        )
+
+        # Print debug diagnostics
+        print(f"\n[Real Pipeline Test] {image_path}")
+        print(f" -> Raw Size: {len(file_bytes)} bytes")
+        print(f" -> Resized Size: {len(resized_bytes)} bytes")
+        print(f" -> Calculated Blur Score: {blur_score:.2f}")
+        print(f" -> Threshold: {DEFAULT_BLUR_THRESHOLD}")
+        print(f" -> Is Blurry Flag: {is_blurry}")
+
+        # 3. Assert that a truly blurry document evaluates as True
+        assert (
+            is_blurry is True
+        ), f"Expected blurry image to fail, but got blur_score={blur_score:.2f} (threshold={DEFAULT_BLUR_THRESHOLD})"
