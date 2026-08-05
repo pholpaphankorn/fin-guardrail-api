@@ -1,0 +1,5 @@
+[tool.pytest.ini_options]
+markers = [
+    "e2e: Marks end-to-end live API flow tests",
+    "unit: Marks fast unit/mock tests",
+]
