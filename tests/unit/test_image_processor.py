@@ -1,4 +1,5 @@
 import io
+import os
 import cv2
 import numpy as np
 import pytest
@@ -67,7 +68,8 @@ class TestPureImageProcessing:
     def test_resize_image_if_needed_no_resize(self):
         """Happy case: Small image stays untouched."""
         img = np.zeros((500, 800, 3), dtype=np.uint8)
-        resized, was_resized = resize_image_if_needed(img, max_dim=MAX_IMAGE_DIMENSION)
+        resized, was_resized = resize_image_if_needed(
+            img, max_dim=MAX_IMAGE_DIMENSION)
 
         assert was_resized is False
         assert resized.shape == (500, 800, 3)
@@ -75,7 +77,8 @@ class TestPureImageProcessing:
     def test_resize_image_if_needed_oversized_landscape(self):
         """Happy case: Resizes large width (>1920px) while maintaining aspect ratio."""
         img = np.zeros((2000, 4000, 3), dtype=np.uint8)  # 2:1 ratio
-        resized, was_resized = resize_image_if_needed(img, max_dim=MAX_IMAGE_DIMENSION)
+        resized, was_resized = resize_image_if_needed(
+            img, max_dim=MAX_IMAGE_DIMENSION)
 
         assert was_resized is True
         assert max(resized.shape[:2]) == MAX_IMAGE_DIMENSION
@@ -85,7 +88,8 @@ class TestPureImageProcessing:
     def test_resize_image_if_needed_oversized_portrait(self):
         """Happy case: Resizes large height (>1920px) while maintaining aspect ratio."""
         img = np.zeros((3000, 1500, 3), dtype=np.uint8)  # 2:1 ratio
-        resized, was_resized = resize_image_if_needed(img, max_dim=MAX_IMAGE_DIMENSION)
+        resized, was_resized = resize_image_if_needed(
+            img, max_dim=MAX_IMAGE_DIMENSION)
 
         assert was_resized is True
         assert resized.shape[0] == MAX_IMAGE_DIMENSION  # Height scaled to 1920
@@ -94,7 +98,8 @@ class TestPureImageProcessing:
     def test_resize_image_if_needed_exact_threshold_edge_case(self):
         """Edge case: Image exact max dimension equal to threshold."""
         img = np.zeros((1080, MAX_IMAGE_DIMENSION, 3), dtype=np.uint8)
-        resized, was_resized = resize_image_if_needed(img, max_dim=MAX_IMAGE_DIMENSION)
+        resized, was_resized = resize_image_if_needed(
+            img, max_dim=MAX_IMAGE_DIMENSION)
 
         assert was_resized is False
         assert resized.shape == (1080, MAX_IMAGE_DIMENSION, 3)
@@ -146,7 +151,8 @@ class TestFastAPIDependencies:
     async def test_get_resized_image_bytes_resizes_oversized_file(self):
         """Happy case: Large image file is successfully resized down."""
         large_bytes = create_synthetic_image_bytes(3000, 2000, ext=".jpg")
-        upload_file = create_mock_upload_file(large_bytes, "large_receipt.jpeg")
+        upload_file = create_mock_upload_file(
+            large_bytes, "large_receipt.jpeg")
 
         processed_bytes = await get_resized_image_bytes(upload_file)
 
@@ -227,3 +233,47 @@ class TestFastAPIDependencies:
         assert out_bytes == bad_bytes
         assert is_blurry is True
         assert blur_score == 0.0
+
+
+@pytest.mark.asyncio
+class TestRealDocumentPipeline:
+
+    async def test_real_thai_id_card_1_blur_pipeline(self):
+        """Tests the exact FastAPI image processing pipeline for thai_id_card_1.jpg:
+
+        1. UploadFile ingestion
+        2. Image resizing (get_resized_image_bytes)
+        3. Blur assessment (evaluate_blur_dependency)
+        """
+        image_path = os.path.join(
+            "data", "mock_docs", "thai_id", "thai_id_card_1.jpg")
+
+        if not os.path.exists(image_path):
+            pytest.skip(f"Real test image missing at: {image_path}")
+
+        # 1. Read real file bytes from disk
+        with open(image_path, "rb") as f:
+            file_bytes = f.read()
+
+        upload_file = create_mock_upload_file(file_bytes, "thai_id_card_1.jpg")
+
+        # 2. Pass through pipeline step 1: Resizing
+        resized_bytes = await get_resized_image_bytes(upload_file)
+
+        # 3. Pass through pipeline step 2: Blur Dependency
+        out_bytes, is_blurry, blur_score = await evaluate_blur_dependency(
+            resized_bytes=resized_bytes
+        )
+
+        # Print debug diagnostic metrics
+        print(f"\n[Real Pipeline Test] {image_path}")
+        print(f" -> Raw Size: {len(file_bytes)} bytes")
+        print(f" -> Resized Size: {len(resized_bytes)} bytes")
+        print(f" -> Calculated Blur Score: {blur_score:.2f}")
+        print(f" -> Threshold: {DEFAULT_BLUR_THRESHOLD}")
+        print(f" -> Is Blurry Flag: {is_blurry}")
+
+        # Assert expected pipeline behavior
+        assert (
+            is_blurry is False
+        ), f"Real ID card flagged as blurry in pipeline! Score: {blur_score:.2f} (Threshold: {DEFAULT_BLUR_THRESHOLD})"
