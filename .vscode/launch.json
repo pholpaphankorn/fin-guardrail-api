@@ -17,13 +17,13 @@
       "jinja": true,
       "justMyCode": true
     },
-        {
+    {
       "name": "Pytest",
       "type": "debugpy",
       "request": "launch",
       "module": "pytest",
       "args": [
-        "."
+        "tests/unit"
       ],
       "jinja": true,
       "justMyCode": true
