@@ -2,8 +2,15 @@ import os
 import json
 import re
 import asyncio
+import sys
+from pathlib import Path
 from typing import Any, Dict, Tuple
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(PROJECT_ROOT))
+
 from app.services.extractor import extract_thai_id
+from fastapi import HTTPException
 
 # Directory Paths
 BASE_EVAL_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -103,7 +110,17 @@ async def evaluate_single_document(img_name: str) -> Dict[str, Any]:
         file_bytes = f.read()
 
     # Call Live LLM Vision Extractor
-    extracted_data = await extract_thai_id(file_bytes)
+    try:
+        extracted_data = await extract_thai_id(file_bytes)
+    except HTTPException as exc:
+        print(f"❌ [{img_name}] Provider request failed with HTTP {exc.status_code}")
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(
+                {"error": "PROVIDER_REQUEST_FAILED", "status_code": exc.status_code},
+                f,
+                indent=2,
+            )
+        return {"accuracy": 0.0, "total_fields": 1, "passed_fields": 0}
 
     if extracted_data is None:
         print(f"❌ [{img_name}] Vision LLM returned None (Extraction Failed)")

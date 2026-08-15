@@ -1,0 +1,20 @@
+{
+  "visual_checks": {
+    "has_card_title": {"value": true, "confidence": 0.7},
+    "has_garuda_emblem": {"value": false, "confidence": 0.7},
+    "has_microchip": {"value": true, "confidence": 0.7},
+    "has_portrait_photo": {"value": true, "confidence": 0.7},
+    "has_barcode": {"value": true, "confidence": 0.7}
+  },
+  "id_number": {"value": "0000000000000", "confidence": 0.7},
+  "first_name_th": {"value": null, "confidence": 0.0},
+  "last_name_th": {"value": null, "confidence": 0.0},
+  "first_name_en": {"value": "TEST", "confidence": 0.7},
+  "last_name_en": {"value": "USER", "confidence": 0.7},
+  "date_of_birth": {"value": "1990-01-01", "confidence": 0.7},
+  "address_th": {"value": "SYNTHETIC ADDRESS ONLY", "confidence": 0.7},
+  "issue_date": {"value": "2024-01-01", "confidence": 0.7},
+  "expiry_date": {"value": "2030-01-01", "confidence": 0.7},
+  "issuing_officer_th": {"value": null, "confidence": 0.0},
+  "religion_th": {"value": null, "confidence": 0.0}
+}
