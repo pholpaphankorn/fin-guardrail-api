@@ -114,6 +114,40 @@ class WorkflowSummary(BaseModel):
     audit_trail: List[WorkflowAuditEvent]
 
 
+class QualityDisposition(str, Enum):
+    CONTINUE = "CONTINUE"
+    HUMAN_REVIEW = "HUMAN_REVIEW"
+    REQUEST_RESUBMISSION = "REQUEST_RESUBMISSION"
+
+
+class ImageQualitySignals(BaseModel):
+    width: int
+    height: int
+    focus_score: float
+    blur_suspected: bool
+    low_resolution_suspected: bool
+    advisory_codes: List[str] = Field(default_factory=list)
+
+
+class ExtractionQualitySignals(BaseModel):
+    field_count: int
+    populated_field_count: int
+    field_completeness: float
+    critical_group_count: int
+    populated_critical_group_count: int
+    critical_completeness: float
+    mean_confidence: float
+    low_confidence_field_count: int
+    missing_critical_groups: List[str] = Field(default_factory=list)
+
+
+class DocumentQualityReport(BaseModel):
+    disposition: QualityDisposition
+    explanation: str
+    image: ImageQualitySignals
+    extraction: Optional[ExtractionQualitySignals] = None
+
+
 # --- Final System Response Model ---
 class RiskAssessmentResponse(BaseModel):
     document_type: str = Field(description="'thai_id' or 'medical_receipt'")
@@ -129,4 +163,11 @@ class RiskAssessmentResponse(BaseModel):
     workflow: Optional[WorkflowSummary] = Field(
         default=None,
         description="Bounded workflow decision and PII-safe tool audit trail.",
+    )
+    quality: Optional[DocumentQualityReport] = Field(
+        default=None,
+        description=(
+            "PII-free image advisories and structured-extraction evidence used to "
+            "route document-quality uncertainty."
+        ),
     )

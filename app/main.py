@@ -21,15 +21,16 @@ from app.services.extractor import (
     extract_medical_receipt,
 )
 from app.services.image_processor import (
-    DEFAULT_BLUR_THRESHOLD,
+    ImageQualityAssessment,
     MAX_UPLOAD_BYTES,
-    evaluate_blur_dependency,
+    evaluate_image_quality_dependency,
 )
+from app.services.quality import build_document_quality_report
 from app.services.retrieval import DEFAULT_POLICY_PATH
 from app.services.workflow import build_workflow_summary
 from app.config import get_settings
 from app.observability import metrics
-from app.schemas import RiskAssessmentResponse
+from app.schemas import QualityDisposition, RiskAssessmentResponse
 
 load_dotenv()
 
@@ -92,6 +93,12 @@ def finalize_response(response: dict) -> dict:
     return response
 
 
+def attach_quality(response: dict, quality) -> dict:
+    """Attach PII-free quality evidence before workflow routing."""
+    response["quality"] = quality.model_dump(mode="json")
+    return finalize_response(response)
+
+
 @app.get("/")
 async def root():
     """Serves the document validation user interface."""
@@ -141,36 +148,42 @@ async def ui_config():
 
 @app.post("/api/v1/validate/thai-id", response_model=RiskAssessmentResponse)
 async def validate_thai_id_endpoint(
-    image_data: tuple[bytes, bool, float] = Depends(evaluate_blur_dependency),
+    image_quality: ImageQualityAssessment = Depends(evaluate_image_quality_dependency),
 ):
     """Validates Thai ID Cards for onboarding & KYC compliance."""
-    processed_bytes, is_blurry, blur_score = image_data
-
-    # 1. Pre-processing Blur Guardrail Check (HTTP 200 Business Rejection)
-    if is_blurry:
-        return finalize_response(
-            build_unreadable_document_response(
-                "thai_id",
-                f"BLURRY_IMAGE_DETECTED: Focus score ({blur_score:.1f}) fell below safety threshold ({DEFAULT_BLUR_THRESHOLD:.1f}). Please re-take a clear photo.",
-            )
-        )
-
-    # 2. Extract Data via Vision LLM using the resized bytes
-    extracted_data = await extract_thai_id(processed_bytes)
+    # Image heuristics are advisory. Structured extraction evidence determines whether
+    # the document can continue, needs human confirmation, or needs resubmission.
+    extracted_data = await extract_thai_id(image_quality.image_bytes)
+    quality = build_document_quality_report("thai_id", image_quality, extracted_data)
 
     if extracted_data is None:
-        return finalize_response(
+        return attach_quality(
             build_unreadable_document_response(
                 "thai_id",
                 "UNREADABLE_DOCUMENT: Failed to parse required document fields after retries.",
-            )
+            ),
+            quality,
         )
 
-    # 3. Evaluate Risk Rules
+    if quality.disposition == QualityDisposition.REQUEST_RESUBMISSION:
+        return attach_quality(
+            build_unreadable_document_response(
+                "thai_id",
+                "UNREADABLE_DOCUMENT: Structured extraction did not recover enough required information.",
+            ),
+            quality,
+        )
+
+    # Deterministic validators remain authoritative for identity decisions.
     flags, risk_score = evaluate_thai_id_risk(extracted_data)
+    if quality.disposition == QualityDisposition.HUMAN_REVIEW:
+        flags.append(
+            "DOCUMENT_QUALITY_REVIEW_REQUIRED: Extraction evidence or advisory image signals require human confirmation."
+        )
+        risk_score = max(risk_score, 0.5)
     status, reasoning = calculate_status_and_reasoning(risk_score)
 
-    return finalize_response(
+    return attach_quality(
         {
             "document_type": "thai_id",
             "status": status,
@@ -178,42 +191,49 @@ async def validate_thai_id_endpoint(
             "validation_flags": flags,
             "risk_score": risk_score,
             "reasoning": reasoning,
-        }
+        },
+        quality,
     )
 
 
 @app.post("/api/v1/validate/medical-receipt", response_model=RiskAssessmentResponse)
 async def validate_medical_receipt_endpoint(
-    image_data: tuple[bytes, bool, float] = Depends(evaluate_blur_dependency),
+    image_quality: ImageQualityAssessment = Depends(evaluate_image_quality_dependency),
 ):
     """Validates Medical Receipts for insurance claims processing."""
-    processed_bytes, is_blurry, blur_score = image_data
-
-    # 1. Pre-processing Blur Guardrail Check (HTTP 200 Business Rejection)
-    if is_blurry:
-        return finalize_response(
-            build_unreadable_document_response(
-                "medical_receipt",
-                f"BLURRY_IMAGE_DETECTED: Focus score ({blur_score:.1f}) fell below safety threshold ({DEFAULT_BLUR_THRESHOLD:.1f}). Please re-take a clear photo.",
-            )
-        )
-
-    # 2. Extract Data via Vision LLM using the resized bytes
-    extracted_data = await extract_medical_receipt(processed_bytes)
+    extracted_data = await extract_medical_receipt(image_quality.image_bytes)
+    quality = build_document_quality_report(
+        "medical_receipt", image_quality, extracted_data
+    )
 
     if extracted_data is None:
-        return finalize_response(
+        return attach_quality(
             build_unreadable_document_response(
                 "medical_receipt",
                 "UNREADABLE_DOCUMENT: Failed to parse required document fields after retries.",
-            )
+            ),
+            quality,
         )
 
-    # 3. Evaluate Risk Rules
+    if quality.disposition == QualityDisposition.REQUEST_RESUBMISSION:
+        return attach_quality(
+            build_unreadable_document_response(
+                "medical_receipt",
+                "UNREADABLE_DOCUMENT: Structured extraction did not recover enough required information.",
+            ),
+            quality,
+        )
+
+    # Deterministic arithmetic and coverage checks remain authoritative.
     flags, risk_score = evaluate_medical_claim_risk(extracted_data)
+    if quality.disposition == QualityDisposition.HUMAN_REVIEW:
+        flags.append(
+            "DOCUMENT_QUALITY_REVIEW_REQUIRED: Extraction evidence or advisory image signals require human confirmation."
+        )
+        risk_score = max(risk_score, 0.5)
     status, reasoning = calculate_status_and_reasoning(risk_score)
 
-    return finalize_response(
+    return attach_quality(
         {
             "document_type": "medical_receipt",
             "status": status,
@@ -221,5 +241,6 @@ async def validate_medical_receipt_endpoint(
             "validation_flags": flags,
             "risk_score": risk_score,
             "reasoning": reasoning,
-        }
+        },
+        quality,
     )

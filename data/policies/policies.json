@@ -49,7 +49,7 @@
     "title": "Low-confidence extraction escalation",
     "section": "Operations / Human Review",
     "document_types": ["all"],
-    "keywords": ["low field confidence", "low total confidence", "low item confidence", "human review"],
+    "keywords": ["low field confidence", "low total confidence", "low item confidence", "document quality review required", "human review"],
     "guidance": "Materially uncertain extracted fields must be escalated rather than silently accepted or guessed.",
     "effect": "REVIEW"
   },

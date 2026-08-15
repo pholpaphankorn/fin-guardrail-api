@@ -1,12 +1,44 @@
+from dataclasses import dataclass
+
 import cv2
 import numpy as np
 from fastapi import UploadFile, File, HTTPException, Depends
 
+from app.schemas import ImageQualitySignals
+
 DEFAULT_BLUR_THRESHOLD = 50.0
+MIN_PROCESSED_DIMENSION = 320
 MAX_IMAGE_DIMENSION = 1920
 MAX_IMAGE_PIXELS = 25_000_000
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png"}
+
+
+@dataclass(frozen=True)
+class ImageQualityAssessment:
+    """Internal upload result with advisory-only image quality signals."""
+
+    image_bytes: bytes
+    width: int
+    height: int
+    focus_score: float
+    blur_suspected: bool
+    low_resolution_suspected: bool
+
+    def public_signals(self) -> ImageQualitySignals:
+        advisory_codes = []
+        if self.blur_suspected:
+            advisory_codes.append("POSSIBLE_BLUR")
+        if self.low_resolution_suspected:
+            advisory_codes.append("LOW_PROCESSED_RESOLUTION")
+        return ImageQualitySignals(
+            width=self.width,
+            height=self.height,
+            focus_score=round(self.focus_score, 3),
+            blur_suspected=self.blur_suspected,
+            low_resolution_suspected=self.low_resolution_suspected,
+            advisory_codes=advisory_codes,
+        )
 
 
 def detect_image_content_type(file_bytes: bytes) -> str | None:
@@ -147,19 +179,34 @@ async def get_resized_image_bytes(file: UploadFile = File(...)) -> bytes:
     return file_bytes
 
 
-async def evaluate_blur_dependency(
+async def evaluate_image_quality_dependency(
     resized_bytes: bytes = Depends(get_resized_image_bytes),
-) -> tuple[bytes, bool, float]:
-    """
-    Dependency 2: Blur Check.
-    Takes output from get_resized_image_bytes, converts to grayscale,
-    and calculates focus score.
+) -> ImageQualityAssessment:
+    """Collect advisory image signals without making a document decision.
+
+    Blur and dimensions are weak proxies for text legibility. The endpoint combines
+    these signals with structured extraction completeness and confidence before it
+    chooses straight-through processing, human review, or resubmission.
     """
     nparr = np.frombuffer(resized_bytes, np.uint8)
     image_gray = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
-
     if image_gray is None:
-        return resized_bytes, True, 0.0
+        return ImageQualityAssessment(
+            image_bytes=resized_bytes,
+            width=0,
+            height=0,
+            focus_score=0.0,
+            blur_suspected=True,
+            low_resolution_suspected=True,
+        )
 
-    is_blurry, blur_score = evaluate_image_blur(image_gray)
-    return resized_bytes, is_blurry, blur_score
+    height, width = image_gray.shape[:2]
+    blur_suspected, focus_score = evaluate_image_blur(image_gray)
+    return ImageQualityAssessment(
+        image_bytes=resized_bytes,
+        width=width,
+        height=height,
+        focus_score=focus_score,
+        blur_suspected=blur_suspected,
+        low_resolution_suspected=min(width, height) < MIN_PROCESSED_DIMENSION,
+    )

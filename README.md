@@ -11,10 +11,12 @@ Onboarding and claims teams repeatedly inspect document quality, identity fields
 ```mermaid
 flowchart LR
     U[Customer or reviewer] --> I[Upload safety and image quality]
-    I -->|readable| V[Vision extraction]
-    I -->|unreadable| W[Bounded review workflow]
+    I -->|advisory signals| V[Vision extraction]
     V --> S[Pydantic structured output]
-    S --> D[Deterministic KYC and claim rules]
+    S --> Q[Completeness and confidence quality report]
+    Q -->|sufficient| D[Deterministic KYC and claim rules]
+    Q -->|uncertain| H[Human review]
+    Q -->|insufficient| X[Request resubmission]
     D --> W
     P[Synthetic policy corpus] --> R[Replaceable retriever]
     R --> W
@@ -24,7 +26,7 @@ flowchart LR
     W --> E[Grounded explanation and citations]
 ```
 
-The workflow accepts only allowlisted typed tools, caps attempts, strips free-form flag details from audit events, and fails closed to human review when validation or policy evidence is unavailable. Retrieval currently uses a deterministic lexical baseline; embeddings are intentionally deferred until evaluation demonstrates a need.
+Image blur and processed dimensions are advisory rather than automatic rejection rules. Structured extraction completeness and confidence decide whether processing can continue, needs human confirmation, or needs a replacement document. The workflow accepts only allowlisted typed tools, caps attempts, strips free-form flag details from audit events, and fails closed to human review when validation or policy evidence is unavailable. Retrieval currently uses a deterministic lexical baseline; embeddings are intentionally deferred until evaluation demonstrates a need.
 
 ## Run locally
 
@@ -62,6 +64,15 @@ Selected fields from the synthetic mock-mode response:
   "status": "APPROVED",
   "validation_flags": [],
   "risk_score": 0.0,
+  "quality": {
+    "disposition": "CONTINUE",
+    "image": {"advisory_codes": []},
+    "extraction": {
+      "field_completeness": 1.0,
+      "critical_completeness": 1.0,
+      "mean_confidence": 0.93
+    }
+  },
   "workflow": {
     "action": "APPROVE",
     "human_review_required": false,
@@ -87,7 +98,7 @@ python scripts/run_eval.py
 black --check app tests scripts
 ```
 
-The current offline baseline has 73 passing unit tests. The synthetic evaluation matrix reports 100% schema validity and critical-field exact match for two fixture contracts, routing accuracy (6 cases), retrieval recall@3 (6 cases), workflow task success, citation correctness/precision, grounded-answer rate, and human-escalation accuracy (3 workflow cases), with zero detected prompt-injection leakage. These are deterministic regression results—not live-model accuracy, production throughput, or evidence of business savings. Generated JSON is written to `tests/evals/output/offline_metrics.json` and ignored by Git.
+The current offline baseline has 83 passing unit tests. The synthetic evaluation matrix reports 100% schema validity and critical-field exact match for two fixture contracts, risk routing accuracy (6 cases), document-quality routing accuracy (6 cases), retrieval recall@3 (7 cases), workflow task success, citation correctness/precision, grounded-answer rate, and human-escalation accuracy (4 workflow cases), with zero detected prompt-injection leakage. These are deterministic regression results—not live-model accuracy, production throughput, or evidence of business savings. Generated JSON is written to `tests/evals/output/offline_metrics.json` and ignored by Git.
 
 Live field-extraction evaluation is credential-dependent:
 
@@ -99,6 +110,7 @@ RUN_LIVE_E2E=true python -m pytest -m e2e
 ## Trust and security boundaries
 
 - Uploads are limited to JPEG/PNG, 10 MB, and bounded decoded dimensions; filename, declared MIME, and binary signature must agree.
+- Blur and image dimensions are advisory signals; extraction completeness and confidence control quality routing, and uncertainty cannot independently cause an irreversible decision.
 - Provider calls use a validated 1–120 second timeout and stable 503/504 failures.
 - Provider clients use validated runtime host and secret settings; extraction prompt versions are exposed by `/api/v1/config` for traceability.
 - Identity checksum, expiry, claim arithmetic, confidence, and exclusion checks remain deterministic.

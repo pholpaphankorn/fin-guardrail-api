@@ -68,6 +68,22 @@ def test_unreadable_document_requests_resubmission():
 
 
 @pytest.mark.unit
+def test_quality_uncertainty_routes_to_human_review_without_failed_image_tool():
+    result = ReviewWorkflow().run(
+        "thai_id",
+        "FLAGGED_FOR_REVIEW",
+        ["DOCUMENT_QUALITY_REVIEW_REQUIRED: details omitted"],
+        0.5,
+    )
+
+    assert result.action == WorkflowAction.HUMAN_REVIEW
+    assert result.audit_trail[0].tool == "check_image_quality"
+    assert result.audit_trail[0].outcome == "SUCCEEDED"
+    assert "human confirmation" in result.audit_trail[0].summary
+    assert result.policy_citations[0].policy_id == "OPS-CONFIDENCE-001"
+
+
+@pytest.mark.unit
 def test_registry_rejects_unauthorized_tool():
     context = WorkflowContext(
         document_type="thai_id", status="APPROVED", risk_score=0.0, flag_codes=()

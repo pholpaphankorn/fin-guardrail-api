@@ -167,13 +167,20 @@ class ReviewWorkflow:
         citations: list[PolicyCitation] = []
 
         image_quality_succeeded = "BLURRY_IMAGE_DETECTED" not in context.flag_codes
+        quality_review_required = (
+            "DOCUMENT_QUALITY_REVIEW_REQUIRED" in context.flag_codes
+        )
         self._record_stage(
             WorkflowTool.CHECK_IMAGE_QUALITY,
             image_quality_succeeded,
             (
-                "Image passed the focus-quality gate."
-                if image_quality_succeeded
-                else "Image failed the focus-quality gate."
+                "Image and extraction quality evidence require human confirmation."
+                if quality_review_required
+                else (
+                    "Image quality signals were recorded as advisory evidence."
+                    if image_quality_succeeded
+                    else "Image failed the legacy focus-quality gate."
+                )
             ),
             context,
             events,

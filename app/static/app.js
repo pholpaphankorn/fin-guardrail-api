@@ -199,10 +199,48 @@ function renderWorkflow(workflow) {
   }
 }
 
+function renderQuality(quality) {
+  document.querySelector("#quality-disposition").textContent = humanize(
+    quality?.disposition || "UNAVAILABLE",
+  );
+  document.querySelector("#quality-explanation").textContent =
+    quality?.explanation || "No quality evidence was returned for this request.";
+
+  const signals = document.querySelector("#quality-signals");
+  signals.replaceChildren();
+  if (!quality?.image) {
+    const empty = document.createElement("li");
+    empty.textContent = "Quality signals are unavailable.";
+    signals.append(empty);
+    return;
+  }
+
+  const summaries = [
+    `Processed image: ${quality.image.width} × ${quality.image.height}px`,
+    `Focus advisory score: ${Math.round(quality.image.focus_score)}`,
+  ];
+  if (quality.extraction) {
+    summaries.push(
+      `Extracted fields present: ${Math.round(quality.extraction.field_completeness * 100)}%`,
+      `Critical evidence present: ${Math.round(quality.extraction.critical_completeness * 100)}%`,
+      `Mean extraction confidence: ${Math.round(quality.extraction.mean_confidence * 100)}%`,
+    );
+  }
+  (quality.image.advisory_codes || []).forEach((code) =>
+    summaries.push(`Advisory: ${humanize(code)}`),
+  );
+  summaries.forEach((summary) => {
+    const item = document.createElement("li");
+    item.textContent = summary;
+    signals.append(item);
+  });
+}
+
 function renderResult(payload) {
   const card = resultSection.querySelector(".result-card");
   const isApproved = payload.status === "APPROVED";
   const isReview = payload.status === "FLAGGED_FOR_REVIEW";
+  const isResubmission = payload.workflow?.action === "REQUEST_RESUBMISSION";
   card.classList.toggle("rejected", !isApproved && !isReview);
   card.classList.toggle("review", isReview);
 
@@ -211,7 +249,9 @@ function renderResult(payload) {
     ? "Document is valid"
     : isReview
       ? "Manual review required"
-      : "Document is not valid";
+      : isResubmission
+        ? "Replacement document required"
+        : "Document is not valid";
   document.querySelector("#result-reasoning").textContent = payload.reasoning || "Validation completed.";
   document.querySelector("#risk-score").textContent = `${Math.round((payload.risk_score || 0) * 100)}%`;
 
@@ -261,6 +301,7 @@ function renderResult(payload) {
     });
   }
 
+  renderQuality(payload.quality);
   renderWorkflow(payload.workflow);
 
   resultSection.hidden = false;

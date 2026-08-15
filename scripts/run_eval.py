@@ -13,10 +13,13 @@ from app.schemas import (  # noqa: E402
     ExtractedField,
     LineItem,
     MedicalReceiptExtraction,
+    QualityDisposition,
     ThaiIDExtraction,
     ThaiIDVisualChecks,
 )
 from app.services.retrieval import LexicalPolicyRetriever  # noqa: E402
+from app.services.image_processor import ImageQualityAssessment  # noqa: E402
+from app.services.quality import build_document_quality_report  # noqa: E402
 from app.services.validator import (  # noqa: E402
     calculate_status_and_reasoning,
     evaluate_medical_claim_risk,
@@ -131,6 +134,11 @@ RETRIEVAL_CASES = [
     ("DOCUMENT_EXPIRED expiry date", "thai_id", "KYC-ID-002"),
     ("BLURRY_IMAGE_DETECTED image quality", "thai_id", "DOC-QUALITY-001"),
     ("LOW_FIELD_CONFIDENCE human review", "thai_id", "OPS-CONFIDENCE-001"),
+    (
+        "DOCUMENT_QUALITY_REVIEW_REQUIRED human review",
+        "thai_id",
+        "OPS-CONFIDENCE-001",
+    ),
 ]
 
 WORKFLOW_CASES = [
@@ -150,6 +158,14 @@ WORKFLOW_CASES = [
         0.5,
         "HUMAN_REVIEW",
         "CLAIM-FIN-001",
+    ),
+    (
+        "thai_id",
+        "FLAGGED_FOR_REVIEW",
+        ["DOCUMENT_QUALITY_REVIEW_REQUIRED: advisory details"],
+        0.5,
+        "HUMAN_REVIEW",
+        "OPS-CONFIDENCE-001",
     ),
 ]
 
@@ -277,6 +293,89 @@ def evaluate_routing() -> dict:
     }
 
 
+def _image_quality(
+    *, blur_suspected: bool = False, low_resolution_suspected: bool = False
+) -> ImageQualityAssessment:
+    return ImageQualityAssessment(
+        image_bytes=b"offline-synthetic-image",
+        width=1200,
+        height=800,
+        focus_score=20.0 if blur_suspected else 180.0,
+        blur_suspected=blur_suspected,
+        low_resolution_suspected=low_resolution_suspected,
+    )
+
+
+def evaluate_document_quality() -> dict:
+    """Evaluate quality routing without copying extracted values into the report."""
+    clean = thai_id_case(expiry_date="Lifetime")
+    low_confidence = clean.model_copy(deep=True)
+    low_confidence.id_number.confidence = 0.55
+    incomplete = clean.model_copy(deep=True)
+    for field in (
+        incomplete.id_number,
+        incomplete.first_name_th,
+        incomplete.last_name_th,
+        incomplete.first_name_en,
+        incomplete.last_name_en,
+        incomplete.date_of_birth,
+        incomplete.expiry_date,
+    ):
+        field.value = None
+
+    cases = [
+        ("complete confident extraction", _image_quality(), clean, "CONTINUE"),
+        (
+            "blur advisory with complete extraction",
+            _image_quality(blur_suspected=True),
+            clean,
+            "HUMAN_REVIEW",
+        ),
+        (
+            "low-resolution advisory with complete extraction",
+            _image_quality(low_resolution_suspected=True),
+            clean,
+            "HUMAN_REVIEW",
+        ),
+        (
+            "low-confidence critical field",
+            _image_quality(),
+            low_confidence,
+            "HUMAN_REVIEW",
+        ),
+        (
+            "missing critical fields",
+            _image_quality(),
+            incomplete,
+            "REQUEST_RESUBMISSION",
+        ),
+        (
+            "failed structured extraction",
+            _image_quality(),
+            None,
+            "REQUEST_RESUBMISSION",
+        ),
+    ]
+    results = []
+    for name, image, extraction, expected in cases:
+        report = build_document_quality_report("thai_id", image, extraction)
+        results.append(
+            {
+                "name": name,
+                "expected": expected,
+                "actual": report.disposition.value,
+                "passed": report.disposition == QualityDisposition(expected),
+            }
+        )
+    passed = sum(case["passed"] for case in results)
+    return {
+        "routing_accuracy": passed / len(results),
+        "passed": passed,
+        "total": len(results),
+        "cases": results,
+    }
+
+
 def evaluate_retrieval() -> dict:
     retriever = LexicalPolicyRetriever()
     results = []
@@ -395,8 +494,9 @@ def evaluate_workflow() -> dict:
 def build_report() -> dict:
     return {
         "evaluation_mode": "offline_deterministic",
-        "dataset_version": "1.0.0",
+        "dataset_version": "1.1.0",
         "structured_output_contract": evaluate_structured_fixtures(),
+        "document_quality": evaluate_document_quality(),
         "routing": evaluate_routing(),
         "retrieval": evaluate_retrieval(),
         "workflow": evaluate_workflow(),
@@ -414,6 +514,7 @@ def report_passed(report: dict) -> bool:
             report["routing"]["accuracy"] == 1.0,
             report["structured_output_contract"]["schema_validity"] == 1.0,
             report["structured_output_contract"]["critical_field_exact_match"] == 1.0,
+            report["document_quality"]["routing_accuracy"] == 1.0,
             report["routing"]["false_approvals"] == 0,
             report["routing"]["false_rejections"] == 0,
             report["retrieval"]["recall_at_3"] == 1.0,
@@ -448,6 +549,10 @@ def main() -> int:
         f"Retrieval: recall@3={report['retrieval']['recall_at_3']:.0%}; "
         f"Workflow success={report['workflow']['task_success_rate']:.0%}; "
         f"Grounded={report['workflow']['grounded_answer_rate']:.0%}"
+    )
+    print(
+        f"Quality routing: {report['document_quality']['passed']}/"
+        f"{report['document_quality']['total']}"
     )
     print(
         f"Retries={report['workflow']['retry_attempts']}; "

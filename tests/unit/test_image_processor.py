@@ -10,9 +10,10 @@ from app.services.image_processor import (
     detect_image_content_type,
     evaluate_image_blur,
     get_resized_image_bytes,
-    evaluate_blur_dependency,
+    evaluate_image_quality_dependency,
     MAX_IMAGE_DIMENSION,
     DEFAULT_BLUR_THRESHOLD,
+    MIN_PROCESSED_DIMENSION,
     MAX_UPLOAD_BYTES,
 )
 
@@ -239,45 +240,51 @@ class TestFastAPIDependencies:
         assert exc_info.value.status_code == 415
         assert "does not match" in exc_info.value.detail
 
-    async def test_evaluate_blur_dependency_sharp_image(self):
-        """Happy case: Sharp image evaluates to is_blurry = False."""
+    async def test_image_quality_reports_sharp_image_without_advisory(self):
         sharp_bytes = create_synthetic_image_bytes(
             1000, 800, add_text=True, blur_ksize=0
         )
 
-        out_bytes, is_blurry, blur_score = await evaluate_blur_dependency(
-            resized_bytes=sharp_bytes
-        )
+        report = await evaluate_image_quality_dependency(resized_bytes=sharp_bytes)
 
-        assert out_bytes == sharp_bytes
-        assert is_blurry is False
-        assert blur_score >= DEFAULT_BLUR_THRESHOLD
+        assert report.image_bytes == sharp_bytes
+        assert report.blur_suspected is False
+        assert report.focus_score >= DEFAULT_BLUR_THRESHOLD
+        assert report.public_signals().advisory_codes == []
 
-    async def test_evaluate_blur_dependency_blurry_image(self):
-        """Failure / Quality case: Heavy motion/Gaussian blur evaluates to is_blurry = True."""
+    async def test_image_quality_reports_blur_as_advisory(self):
         blurry_bytes = create_synthetic_image_bytes(
             1000, 800, add_text=True, blur_ksize=41
         )
 
-        out_bytes, is_blurry, blur_score = await evaluate_blur_dependency(
-            resized_bytes=blurry_bytes
-        )
+        report = await evaluate_image_quality_dependency(resized_bytes=blurry_bytes)
 
-        assert out_bytes == blurry_bytes
-        assert is_blurry is True
-        assert blur_score < DEFAULT_BLUR_THRESHOLD
+        assert report.image_bytes == blurry_bytes
+        assert report.blur_suspected is True
+        assert report.focus_score < DEFAULT_BLUR_THRESHOLD
+        assert report.public_signals().advisory_codes == ["POSSIBLE_BLUR"]
 
-    async def test_evaluate_blur_dependency_corrupted_input_fallback(self):
-        """Edge case: Unparseable byte stream falls back to blurry = True and 0.0 score safely."""
+    async def test_image_quality_corrupted_input_falls_back_to_advisories(self):
         bad_bytes = b"random_corrupt_data"
 
-        out_bytes, is_blurry, blur_score = await evaluate_blur_dependency(
-            resized_bytes=bad_bytes
+        report = await evaluate_image_quality_dependency(resized_bytes=bad_bytes)
+
+        assert report.image_bytes == bad_bytes
+        assert report.blur_suspected is True
+        assert report.low_resolution_suspected is True
+        assert report.focus_score == 0.0
+
+    async def test_image_quality_reports_small_processed_dimensions(self):
+        small_bytes = create_synthetic_image_bytes(
+            MIN_PROCESSED_DIMENSION - 1,
+            MIN_PROCESSED_DIMENSION - 1,
+            add_text=True,
         )
 
-        assert out_bytes == bad_bytes
-        assert is_blurry is True
-        assert blur_score == 0.0
+        report = await evaluate_image_quality_dependency(resized_bytes=small_bytes)
+
+        assert report.low_resolution_suspected is True
+        assert "LOW_PROCESSED_RESOLUTION" in report.public_signals().advisory_codes
 
 
 @pytest.mark.asyncio
@@ -288,7 +295,7 @@ class TestSyntheticDocumentPipeline:
 
         1. UploadFile ingestion
         2. Image resizing (get_resized_image_bytes)
-        3. Blur assessment (evaluate_blur_dependency)
+        3. Advisory image quality assessment
         """
         image_path = os.path.join(
             "data", "mock_docs", "thai_id", "synthetic_thai_id.png"
@@ -306,23 +313,21 @@ class TestSyntheticDocumentPipeline:
         # 2. Pass through pipeline step 1: Resizing
         resized_bytes = await get_resized_image_bytes(upload_file)
 
-        # 3. Pass through pipeline step 2: Blur Dependency
-        out_bytes, is_blurry, blur_score = await evaluate_blur_dependency(
-            resized_bytes=resized_bytes
-        )
+        # 3. Pass through pipeline step 2: Advisory quality assessment
+        report = await evaluate_image_quality_dependency(resized_bytes=resized_bytes)
 
         # Print debug diagnostic metrics
         print(f"\n[Synthetic Pipeline Test] {image_path}")
         print(f" -> Raw Size: {len(file_bytes)} bytes")
         print(f" -> Resized Size: {len(resized_bytes)} bytes")
-        print(f" -> Calculated Blur Score: {blur_score:.2f}")
+        print(f" -> Calculated Blur Score: {report.focus_score:.2f}")
         print(f" -> Threshold: {DEFAULT_BLUR_THRESHOLD}")
-        print(f" -> Is Blurry Flag: {is_blurry}")
+        print(f" -> Is Blurry Flag: {report.blur_suspected}")
 
         # Assert expected pipeline behavior
         assert (
-            is_blurry is False
-        ), f"Synthetic ID fixture flagged as blurry! Score: {blur_score:.2f} (Threshold: {DEFAULT_BLUR_THRESHOLD})"
+            report.blur_suspected is False
+        ), f"Synthetic ID fixture raised a blur advisory! Score: {report.focus_score:.2f} (Threshold: {DEFAULT_BLUR_THRESHOLD})"
 
     async def test_synthetic_medical_receipt_is_readable(self):
         """Verifies that the synthetic receipt is not rejected as blurry."""
@@ -344,21 +349,19 @@ class TestSyntheticDocumentPipeline:
             file_bytes, "synthetic_medical_receipt.png"
         )
 
-        # 2. Pass through pipeline (Resize -> Blur check)
+        # 2. Pass through pipeline (Resize -> advisory quality signals)
         resized_bytes = await get_resized_image_bytes(upload_file)
-        out_bytes, is_blurry, blur_score = await evaluate_blur_dependency(
-            resized_bytes=resized_bytes
-        )
+        report = await evaluate_image_quality_dependency(resized_bytes=resized_bytes)
 
         # Print debug diagnostics
         print(f"\n[Synthetic Pipeline Test] {image_path}")
         print(f" -> Raw Size: {len(file_bytes)} bytes")
         print(f" -> Resized Size: {len(resized_bytes)} bytes")
-        print(f" -> Calculated Blur Score: {blur_score:.2f}")
+        print(f" -> Calculated Blur Score: {report.focus_score:.2f}")
         print(f" -> Threshold: {DEFAULT_BLUR_THRESHOLD}")
-        print(f" -> Is Blurry Flag: {is_blurry}")
+        print(f" -> Is Blurry Flag: {report.blur_suspected}")
 
         # This fixture contains crisp text and edges; generated blur cases cover true blur.
         assert (
-            is_blurry is False
-        ), f"Expected readable image to pass, but got blur_score={blur_score:.2f} (threshold={DEFAULT_BLUR_THRESHOLD})"
+            report.blur_suspected is False
+        ), f"Expected no blur advisory, but got focus_score={report.focus_score:.2f} (threshold={DEFAULT_BLUR_THRESHOLD})"
