@@ -17,6 +17,8 @@ async def test_ui_home_serves_document_validator():
     assert "Know what passes" in response.text
     assert "Thai ID card" in response.text
     assert "Medical receipt" in response.text
+    assert "Policy evidence" in response.text
+    assert "Tool audit trail" in response.text
 
 
 @pytest.mark.unit
@@ -27,7 +29,7 @@ async def test_ui_assets_and_sample_document_are_available():
     ) as client:
         stylesheet = await client.get("/static/styles.css")
         script = await client.get("/static/app.js")
-        sample = await client.get("/samples/thai_id/thai_id_card_front.png")
+        sample = await client.get("/samples/thai_id/synthetic_thai_id.png")
 
     assert stylesheet.status_code == 200
     assert script.status_code == 200
@@ -48,4 +50,9 @@ async def test_ui_config_reports_demo_mode(monkeypatch):
     assert response.json() == {
         "demo_mode": True,
         "vision_provider": "Ollama Cloud",
+        "max_upload_mb": 10,
+        "prompt_versions": {
+            "thai_id": "thai-id-extraction-v1.0.0",
+            "medical_receipt": "medical-receipt-extraction-v1.0.0",
+        },
     }

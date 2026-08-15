@@ -1,0 +1,65 @@
+[
+  {
+    "policy_id": "DOC-QUALITY-001",
+    "title": "Document image quality and resubmission",
+    "section": "Document Intake / Image Quality",
+    "document_types": ["all"],
+    "keywords": ["blurry image detected", "unreadable document", "request resubmission", "image quality"],
+    "guidance": "Unreadable or materially blurred documents require a clearer replacement. No identity or claim decision may be inferred from an unreadable image.",
+    "effect": "RESUBMIT"
+  },
+  {
+    "policy_id": "KYC-ID-001",
+    "title": "Thai identity number integrity",
+    "section": "KYC / Identity Validation",
+    "document_types": ["thai_id"],
+    "keywords": ["id checksum failed", "invalid id number format", "thai id", "rejected"],
+    "guidance": "Thai identity numbers must contain 13 digits and pass the deterministic checksum before automated onboarding can continue.",
+    "effect": "DENY"
+  },
+  {
+    "policy_id": "KYC-ID-002",
+    "title": "Identity document validity period",
+    "section": "KYC / Document Validity",
+    "document_types": ["thai_id"],
+    "keywords": ["document expired", "date parsing error", "expiry date", "rejected"],
+    "guidance": "Expired identity documents and unparseable validity dates cannot be accepted for automated onboarding.",
+    "effect": "DENY"
+  },
+  {
+    "policy_id": "CLAIM-FIN-001",
+    "title": "Medical claim arithmetic integrity",
+    "section": "Claims / Financial Validation",
+    "document_types": ["medical_receipt"],
+    "keywords": ["arithmetic mismatch", "invoice total", "line items", "flagged for review"],
+    "guidance": "A mismatch between itemized charges and the stated total requires human review before claim processing.",
+    "effect": "REVIEW"
+  },
+  {
+    "policy_id": "CLAIM-COVERAGE-001",
+    "title": "Potentially excluded treatment review",
+    "section": "Claims / Coverage Review",
+    "document_types": ["medical_receipt"],
+    "keywords": ["high risk item found", "cosmetic", "laser", "coverage", "flagged for review"],
+    "guidance": "Potential cosmetic or excluded treatments must be reviewed against the applicable customer policy; keyword detection alone cannot deny a claim.",
+    "effect": "REVIEW"
+  },
+  {
+    "policy_id": "OPS-CONFIDENCE-001",
+    "title": "Low-confidence extraction escalation",
+    "section": "Operations / Human Review",
+    "document_types": ["all"],
+    "keywords": ["low field confidence", "low total confidence", "low item confidence", "human review"],
+    "guidance": "Materially uncertain extracted fields must be escalated rather than silently accepted or guessed.",
+    "effect": "REVIEW"
+  },
+  {
+    "policy_id": "OPS-PASS-001",
+    "title": "Automated validation pass",
+    "section": "Operations / Straight-Through Processing",
+    "document_types": ["all"],
+    "keywords": ["approved", "deterministic validation", "no flags"],
+    "guidance": "A document may proceed automatically only after required deterministic checks pass without risk flags.",
+    "effect": "ALLOW"
+  }
+]

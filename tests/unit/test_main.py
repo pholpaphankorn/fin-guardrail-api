@@ -40,6 +40,44 @@ class TestMainEndpoints:
             response = await ac.get("/health")
         assert response.status_code == 200
         assert response.json() == {"status": "healthy", "service": "fin-guardrail-api"}
+        assert len(response.headers["X-Request-ID"]) == 32
+
+    async def test_readiness_is_ready_in_mock_mode(self, monkeypatch):
+        monkeypatch.setenv("USE_MOCK_LLM", "true")
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as ac:
+            response = await ac.get("/health/ready")
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "status": "ready",
+            "checks": {"policy_corpus": True, "vision_provider": True},
+        }
+
+    async def test_readiness_fails_without_live_provider_key(self, monkeypatch):
+        monkeypatch.setenv("USE_MOCK_LLM", "false")
+        monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as ac:
+            response = await ac.get("/health/ready")
+
+        assert response.status_code == 503
+        assert response.json()["checks"]["vision_provider"] is False
+
+    async def test_metrics_expose_only_aggregate_runtime_data(self):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as ac:
+            response = await ac.get("/metrics")
+
+        assert response.status_code == 200
+        assert set(response.json()) == {
+            "counts",
+            "request_latency_ms",
+            "model_latency_ms",
+        }
 
     @patch("app.main.evaluate_blur_dependency")
     async def test_validate_thai_id_blurry_rejection_failed_case(self, mock_blur_dep):
@@ -131,6 +169,8 @@ class TestMainEndpoints:
             assert payload["status"] == "APPROVED"
             assert payload["risk_score"] == 0.0
             assert payload["document_type"] == "thai_id"
+            assert payload["workflow"]["action"] == "APPROVE"
+            assert payload["workflow"]["human_review_required"] is False
         finally:
             # Clean up overrides after test run
             app.dependency_overrides.clear()
@@ -174,6 +214,8 @@ class TestMainEndpoints:
             assert payload["status"] == "FLAGGED_FOR_REVIEW"
             assert payload["risk_score"] == 0.5
             assert "ARITHMETIC_MISMATCH" in payload["validation_flags"]
+            assert payload["workflow"]["action"] == "HUMAN_REVIEW"
+            assert payload["workflow"]["human_review_required"] is True
         finally:
             # Clean up overrides after test run
             app.dependency_overrides.clear()

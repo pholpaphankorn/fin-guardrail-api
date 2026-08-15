@@ -1,3 +1,4 @@
+from enum import Enum
 from typing import Generic, List, Optional, TypeVar
 from pydantic import BaseModel, Field
 
@@ -84,6 +85,35 @@ class MedicalReceiptExtraction(BaseModel):
     total_amount: ExtractedField[float] = Field(description="Total balance.")
 
 
+class WorkflowAction(str, Enum):
+    APPROVE = "APPROVE"
+    REJECT = "REJECT"
+    REQUEST_RESUBMISSION = "REQUEST_RESUBMISSION"
+    HUMAN_REVIEW = "HUMAN_REVIEW"
+
+
+class WorkflowAuditEvent(BaseModel):
+    sequence: int
+    tool: str
+    outcome: str
+    summary: str
+    flag_codes: List[str] = Field(default_factory=list)
+
+
+class PolicyCitation(BaseModel):
+    policy_id: str
+    title: str
+    section: str
+
+
+class WorkflowSummary(BaseModel):
+    action: WorkflowAction
+    human_review_required: bool
+    explanation: str
+    policy_citations: List[PolicyCitation]
+    audit_trail: List[WorkflowAuditEvent]
+
+
 # --- Final System Response Model ---
 class RiskAssessmentResponse(BaseModel):
     document_type: str = Field(description="'thai_id' or 'medical_receipt'")
@@ -96,3 +126,7 @@ class RiskAssessmentResponse(BaseModel):
         description="Calculated risk level between 0.0 (Safe) and 1.0 (Critical)"
     )
     reasoning: str = Field(description="Detailed text explaining the verdict status")
+    workflow: Optional[WorkflowSummary] = Field(
+        default=None,
+        description="Bounded workflow decision and PII-safe tool audit trail.",
+    )

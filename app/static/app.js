@@ -1,26 +1,16 @@
 const sampleSets = {
   "thai-id": [
     {
-      name: "Thai ID · portrait",
-      detail: "Full card photographed vertically",
-      url: "/samples/thai_id/thai_id_card_1.jpg",
-    },
-    {
-      name: "Thai ID · front",
-      detail: "Clean front-facing card example",
-      url: "/samples/thai_id/thai_id_card_front.png",
+      name: "Synthetic Thai ID",
+      detail: "Clearly marked, non-valid KYC fixture",
+      url: "/samples/thai_id/synthetic_thai_id.png",
     },
   ],
   "medical-receipt": [
     {
-      name: "Bangkok hospital bill",
-      detail: "Detailed itemized medical receipt",
-      url: "/samples/thai_medical_receipt/medical-bill-at-bangkok-hospital-v0-zh2a8xwmllzd1.jpg",
-    },
-    {
-      name: "Partial receipt",
-      detail: "Cropped receipt quality example",
-      url: "/samples/thai_medical_receipt/partial_medical_receipt.jpeg",
+      name: "Synthetic medical receipt",
+      detail: "Clearly marked, fictional claim fixture",
+      url: "/samples/thai_medical_receipt/synthetic_medical_receipt.png",
     },
   ],
 };
@@ -161,6 +151,54 @@ function humanize(label) {
   return label.replaceAll("_", " ").replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
+function renderWorkflow(workflow) {
+  const action = workflow?.action || "UNAVAILABLE";
+  document.querySelector("#workflow-action").textContent = humanize(action);
+  document.querySelector("#workflow-explanation").textContent =
+    workflow?.explanation || "No workflow evidence was returned for this request.";
+
+  const citations = document.querySelector("#policy-citations");
+  citations.replaceChildren();
+  (workflow?.policy_citations || []).forEach((citation) => {
+    const item = document.createElement("article");
+    const policy = document.createElement("strong");
+    policy.textContent = citation.policy_id;
+    const title = document.createElement("span");
+    title.textContent = citation.title;
+    const section = document.createElement("small");
+    section.textContent = citation.section;
+    item.append(policy, title, section);
+    citations.append(item);
+  });
+  if (!citations.children.length) {
+    const empty = document.createElement("p");
+    empty.className = "evidence-empty";
+    empty.textContent = "No supporting policy citation was available.";
+    citations.append(empty);
+  }
+
+  const audit = document.querySelector("#audit-trail");
+  audit.replaceChildren();
+  (workflow?.audit_trail || []).forEach((event) => {
+    const item = document.createElement("li");
+    const tool = document.createElement("strong");
+    tool.textContent = humanize(event.tool);
+    const outcome = document.createElement("span");
+    outcome.textContent = event.outcome;
+    outcome.className = event.outcome === "SUCCEEDED" ? "succeeded" : "failed";
+    const summary = document.createElement("small");
+    summary.textContent = event.summary;
+    item.append(tool, outcome, summary);
+    audit.append(item);
+  });
+  if (!audit.children.length) {
+    const empty = document.createElement("li");
+    empty.className = "evidence-empty";
+    empty.textContent = "No tool events were recorded.";
+    audit.append(empty);
+  }
+}
+
 function renderResult(payload) {
   const card = resultSection.querySelector(".result-card");
   const isApproved = payload.status === "APPROVED";
@@ -222,6 +260,8 @@ function renderResult(payload) {
       fieldGrid.append(field);
     });
   }
+
+  renderWorkflow(payload.workflow);
 
   resultSection.hidden = false;
   resultSection.scrollIntoView({ behavior: "smooth", block: "start" });

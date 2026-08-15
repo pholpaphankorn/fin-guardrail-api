@@ -17,31 +17,31 @@
         "reasoning": "Clear line item description."
       },
       "cost": {
-        "value": 800.0,
+        "value": 500.0,
         "confidence": 0.94,
         "reasoning": "Item cost clean and aligned."
       }
     },
     {
       "description": {
-        "value": "Medication",
+        "value": "Laboratory test",
         "confidence": 0.92,
         "reasoning": "Legible medication item text."
       },
       "cost": {
-        "value": 150.0,
+        "value": 800.0,
         "confidence": 0.93,
         "reasoning": "Item cost clearly readable."
       }
     },
     {
       "description": {
-        "value": "Laboratory test",
+        "value": "Medication",
         "confidence": 0.90,
         "reasoning": "Clean line item."
       },
       "cost": {
-        "value": 1200.0,
+        "value": 850.0,
         "confidence": 0.92,
         "reasoning": "Numeric digits clear."
       }

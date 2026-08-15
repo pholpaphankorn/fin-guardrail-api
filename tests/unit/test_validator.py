@@ -1,6 +1,11 @@
 from datetime import datetime, timedelta
-from unittest.mock import patch
-from app.schemas import ThaiIDExtraction, MedicalReceiptExtraction, LineItem
+from app.schemas import (
+    ExtractedField,
+    ThaiIDExtraction,
+    ThaiIDVisualChecks,
+    MedicalReceiptExtraction,
+    LineItem,
+)
 from app.services.validator import (
     evaluate_thai_id_risk,
     evaluate_medical_claim_risk,
@@ -9,18 +14,55 @@ from app.services.validator import (
 )
 
 
+def extracted(value, confidence=0.95):
+    return ExtractedField(value=value, confidence=confidence)
+
+
+def make_thai_id(**overrides):
+    fields = {
+        "visual_checks": ThaiIDVisualChecks(
+            has_card_title=extracted(True),
+            has_garuda_emblem=extracted(True),
+            has_microchip=extracted(True),
+            has_portrait_photo=extracted(True),
+            has_barcode=extracted(True),
+        ),
+        "id_number": extracted("1234567890121"),
+        "first_name_th": extracted("TEST"),
+        "last_name_th": extracted("USER"),
+        "first_name_en": extracted("TEST"),
+        "last_name_en": extracted("Dee"),
+        "date_of_birth": extracted("1990-01-01"),
+        "address_th": extracted("กรุงเทพมหานคร"),
+        "issue_date": extracted("2020-01-01"),
+        "expiry_date": extracted("2030-01-01"),
+        "issuing_officer_th": extracted("เจ้าหน้าที่ทดสอบ"),
+        "religion_th": extracted(null),
+    }
+    fields.update(overrides)
+    return ThaiIDExtraction(**fields)
+
+
+def make_receipt(*, items, total_amount, total_confidence=0.90):
+    return MedicalReceiptExtraction(
+        hospital_name=extracted("City Hospital"),
+        receipt_date=extracted("2026-03-01"),
+        items=[
+            LineItem(description=extracted(description), cost=extracted(cost))
+            for description, cost in items
+        ],
+        total_amount=extracted(total_amount, total_confidence),
+    )
+
+
 class TestEvaluateThaiIDRisk:
 
     def test_thai_id_happy_case_clean_approval(self):
         """Happy Case: Perfectly valid Thai ID (with valid Modulus 11 checksum) produces zero flags and 0.0 risk score."""
         future_date = (datetime.now() + timedelta(days=365)).strftime("%Y-%m-%d")
-        valid_id = ThaiIDExtraction(
-            id_number="1 2345 67890 12 1",  # Mathematically valid checksum sequence
-            first_name_en="TEST",
-            last_name_en="Dee",
-            date_of_birth="1990-01-01",
-            expiry_date=future_date,
-            confidence_score=0.95,
+        valid_id = make_thai_id(
+            id_number=extracted("1 2345 67890 12 1"),
+            expiry_date=extracted(future_date),
         )
 
         flags, risk_score = evaluate_thai_id_risk(valid_id)
@@ -30,14 +72,7 @@ class TestEvaluateThaiIDRisk:
 
     def test_thai_id_edge_case_lifetime_expiry(self):
         """Edge Case: 'lifetime' expiry date string with valid checksum is parsed properly without flags."""
-        valid_lifetime_id = ThaiIDExtraction(
-            id_number="1234567890121",  # Valid checksum
-            first_name_en="Jane",
-            last_name_en="Doe",
-            date_of_birth="1950-01-01",
-            expiry_date="LIFETIME",  # Case insensitive test
-            confidence_score=0.88,
-        )
+        valid_lifetime_id = make_thai_id(expiry_date=extracted("LIFETIME"))
 
         flags, risk_score = evaluate_thai_id_risk(valid_lifetime_id)
 
@@ -46,13 +81,8 @@ class TestEvaluateThaiIDRisk:
 
     def test_thai_id_failed_case_checksum_failure(self):
         """Failed Case: 13-digit numeric string that fails Modulus 11 check triggers ID_CHECKSUM_FAILED flag."""
-        invalid_checksum_id = ThaiIDExtraction(
-            id_number="1234567890123",  # 13 digits, but check digit 3 should be 1
-            first_name_en="TEST",
-            last_name_en="Dee",
-            date_of_birth="1990-01-01",
-            expiry_date="2030-01-01",
-            confidence_score=0.95,
+        invalid_checksum_id = make_thai_id(
+            id_number=extracted("1234567890123"),
         )
 
         flags, risk_score = evaluate_thai_id_risk(invalid_checksum_id)
@@ -61,34 +91,36 @@ class TestEvaluateThaiIDRisk:
         assert "ID_CHECKSUM_FAILED" in flags[0]
         assert risk_score == 0.7
 
+    def test_thai_id_failed_case_repeated_placeholder_number(self):
+        """A mathematically checksum-valid placeholder must never be accepted."""
+        placeholder_id = make_thai_id(id_number=extracted("0000000000000"))
+
+        flags, risk_score = evaluate_thai_id_risk(placeholder_id)
+
+        assert len(flags) == 1
+        assert "PLACEHOLDER_ID_NUMBER" in flags[0]
+        assert risk_score == 0.7
+
     def test_thai_id_failed_case_expired_and_low_confidence(self):
         """Failed Case: Expired card + low confidence accumulates risk flags."""
         past_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
-        expired_id = ThaiIDExtraction(
-            id_number="1234567890121",  # Valid checksum
-            first_name_en="John",
-            last_name_en="Doe",
-            date_of_birth="1980-01-01",
-            expiry_date=past_date,
-            confidence_score=0.60,  # Below 0.75 threshold
+        expired_id = make_thai_id(
+            id_number=extracted("1234567890121", confidence=0.60),
+            expiry_date=extracted(past_date),
         )
 
         flags, risk_score = evaluate_thai_id_risk(expired_id)
 
         assert len(flags) == 2
-        assert any("LOW_MODEL_CONFIDENCE" in f for f in flags)
+        assert any("LOW_FIELD_CONFIDENCE" in f for f in flags)
         assert any("DOCUMENT_EXPIRED" in f for f in flags)
         assert risk_score == 1.0  # 0.5 + 0.8 = 1.3 capped at 1.0
 
     def test_thai_id_failed_case_invalid_format_and_date_error(self):
         """Failed Case: Non-numeric ID number and malformed expiry date string."""
-        bad_id = ThaiIDExtraction(
-            id_number="12345ABC",  # Short and non-digit
-            first_name_en="John",
-            last_name_en="Doe",
-            date_of_birth="1980-01-01",
-            expiry_date="2028/12/31",  # Wrong delimiter format
-            confidence_score=0.85,
+        bad_id = make_thai_id(
+            id_number=extracted("12345ABC"),
+            expiry_date=extracted("2028/12/31"),
         )
 
         flags, risk_score = evaluate_thai_id_risk(bad_id)
@@ -103,15 +135,9 @@ class TestEvaluateMedicalClaimRisk:
 
     def test_medical_claim_happy_case_clean_approval(self):
         """Happy Case: Perfectly matching line items and total with clean policy items."""
-        receipt = MedicalReceiptExtraction(
-            hospital_name="City Hospital",
-            receipt_date="2026-03-01",
-            items=[
-                LineItem(description="Consultation", cost=500.0),
-                LineItem(description="Medication", cost=150.0),
-            ],
+        receipt = make_receipt(
+            items=[("Consultation", 500.0), ("Medication", 150.0)],
             total_amount=650.0,
-            confidence_score=0.90,
         )
 
         flags, risk_score = evaluate_medical_claim_risk(receipt)
@@ -121,14 +147,9 @@ class TestEvaluateMedicalClaimRisk:
 
     def test_medical_claim_failed_case_arithmetic_mismatch(self):
         """Failed Case: Line items sum does not equal total amount."""
-        receipt = MedicalReceiptExtraction(
-            hospital_name="City Hospital",
-            receipt_date="2026-03-01",
-            items=[
-                LineItem(description="Blood Test", cost=1000.0),
-            ],
-            total_amount=1200.0,  # Mismatch by 200.0
-            confidence_score=0.80,
+        receipt = make_receipt(
+            items=[("Blood Test", 1000.0)],
+            total_amount=1200.0,
         )
 
         flags, risk_score = evaluate_medical_claim_risk(receipt)
@@ -139,20 +160,14 @@ class TestEvaluateMedicalClaimRisk:
 
     def test_medical_claim_edge_case_high_risk_keywords_thai_and_english(self):
         """Edge Case: Detects non-covered treatment keywords in English and Thai."""
-        receipt_en = MedicalReceiptExtraction(
-            hospital_name="Aesthetic Clinic",
-            receipt_date="2026-03-01",
-            items=[LineItem(description="Skin Whitening Treatment", cost=3000.0)],
+        receipt_en = make_receipt(
+            items=[("Skin Whitening Treatment", 3000.0)],
             total_amount=3000.0,
-            confidence_score=0.85,
         )
 
-        receipt_th = MedicalReceiptExtraction(
-            hospital_name="Aesthetic Clinic",
-            receipt_date="2026-03-01",
-            items=[LineItem(description="คอร์ส เลเซอร์ หน้าใส", cost=3000.0)],
+        receipt_th = make_receipt(
+            items=[("คอร์ส เลเซอร์ หน้าใส", 3000.0)],
             total_amount=3000.0,
-            confidence_score=0.85,
         )
 
         flags_en, risk_en = evaluate_medical_claim_risk(receipt_en)

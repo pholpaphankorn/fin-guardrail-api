@@ -14,6 +14,8 @@ def is_valid_thai_id_checksum(id_number: str) -> bool:
 
     if len(clean_id) != 13 or not clean_id.isdigit():
         return False
+    if len(set(clean_id)) == 1:
+        return False
 
     digits = [int(d) for d in clean_id]
 
@@ -128,6 +130,11 @@ def evaluate_thai_id_risk(data: ThaiIDExtraction) -> tuple[list[str], float]:
                 "INVALID_ID_NUMBER_FORMAT: Thai ID must be exactly 13 numeric digits."
             )
             risk_score += 0.6
+        elif len(set(clean_id)) == 1:
+            flags.append(
+                "PLACEHOLDER_ID_NUMBER: Thai ID cannot contain one repeated digit."
+            )
+            risk_score += 0.7
         elif not is_valid_thai_id_checksum(clean_id):
             flags.append(
                 f"ID_CHECKSUM_FAILED: Extracted ID ({clean_id}) failed Modulus 11 validation."

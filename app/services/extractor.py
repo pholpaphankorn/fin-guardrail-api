@@ -1,22 +1,37 @@
 import json
-import os
 import base64
 import logging
+import asyncio
+import time
 from typing import Optional
 from fastapi import HTTPException
 from pydantic import ValidationError
 from ollama import Client
 from app.schemas import ThaiIDExtraction, MedicalReceiptExtraction
-from dotenv import load_dotenv
-
-load_dotenv()
+from app.config import Settings, get_settings
+from app.observability import metrics
 
 logger = logging.getLogger(__name__)
 
-ollama_client = Client(
-    host="https://ollama.com",
-    headers={"Authorization": f"Bearer {os.environ.get('OLLAMA_API_KEY')}"},
-)
+THAI_ID_PROMPT_VERSION = "thai-id-extraction-v1.0.0"
+MEDICAL_RECEIPT_PROMPT_VERSION = "medical-receipt-extraction-v1.0.0"
+PROMPT_VERSIONS = {
+    "thai_id": THAI_ID_PROMPT_VERSION,
+    "medical_receipt": MEDICAL_RECEIPT_PROMPT_VERSION,
+}
+
+
+def _create_ollama_client(settings: Settings) -> Client:
+    """Build a provider client from the validated settings for this request."""
+    api_key = (
+        settings.ollama_api_key.get_secret_value()
+        if settings.ollama_api_key is not None
+        else ""
+    )
+    return Client(
+        host=settings.ollama_host,
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
 
 
 def encode_file_to_base64(file_bytes: bytes) -> str:
@@ -46,87 +61,115 @@ async def _call_vision_model(
     and querying Ollama. Includes an automatic single-retry loop with a correction prompt.
     Returns None if extraction completely fails after retries.
     """
-    USE_MOCK = os.environ.get("USE_MOCK_LLM", "false").lower() == "true"
+    settings = get_settings()
 
     if not file_bytes:
         raise HTTPException(
             status_code=400, detail="The provided image byte stream is empty."
         )
 
-    if USE_MOCK:
+    if settings.use_mock_llm:
         try:
             with open(mock_file_path, "r", encoding="utf-8") as f:
                 raw_json = json.load(f)
             return target_schema.model_validate(raw_json)
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, ValidationError):
+            logger.error("Mock extraction response is unavailable or schema-invalid.")
             raise HTTPException(
-                status_code=500, detail=f"Local mock reading failure: {str(e)}"
+                status_code=500,
+                detail="Local mock response is unavailable or invalid.",
             )
 
+    if not settings.live_provider_ready:
+        raise HTTPException(
+            status_code=503,
+            detail="Vision provider is not configured. Set OLLAMA_API_KEY or enable mock mode.",
+        )
+
+    client = _create_ollama_client(settings)
     base64_image = encode_file_to_base64(file_bytes)
+
+    async def call_provider(prompt: str, attempt: int):
+        started = time.perf_counter()
+        if attempt > 1:
+            metrics.increment("model_retries_total")
+        try:
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    client.chat,
+                    model=settings.vision_model,
+                    messages=[
+                        {
+                            "requirement": "user",
+                            "content": prompt,
+                            "images": [base64_image],
+                        }
+                    ],
+                    format=target_schema.model_json_schema(),
+                    options={"temperature": 0.0},
+                ),
+                timeout=settings.vision_timeout_seconds,
+            )
+            metrics.observe_model((time.perf_counter() - started) * 1000, "responses")
+            return response
+        except TimeoutError as exc:
+            metrics.observe_model((time.perf_counter() - started) * 1000, "timeouts")
+            raise HTTPException(
+                status_code=504, detail="Vision provider request timed out."
+            ) from exc
+        except Exception:
+            metrics.observe_model((time.perf_counter() - started) * 1000, "errors")
+            raise
 
     # --- ATTEMPT 1 ---
     try:
-        response = ollama_client.chat(
-            model="gemma4:31b-cloud",
-            messages=[
-                {
-                    "requirement": "user",
-                    "content": prompt_instruction,
-                    "images": [base64_image],
-                }
-            ],
-            format=target_schema.model_json_schema(),
-            options={"temperature": 0.0},
-        )
+        response = await call_provider(prompt_instruction, attempt=1)
 
         raw_content = cleanup_raw_content(response.message.content)
         return target_schema.model_validate_json(raw_content)
 
-    except (ValidationError, json.JSONDecodeError, ValueError) as err:
+    except HTTPException:
+        raise
+    except (ValidationError, json.JSONDecodeError, ValueError):
+        metrics.increment("model_schema_failures_total")
         logger.warning(
-            f"[Attempt 1 Failed] Vision LLM output failed schema parsing: {err}. Retrying with correction prompt..."
+            "Vision output failed schema validation on attempt 1; retrying once."
         )
 
         # --- ATTEMPT 2 (Correction Retry) ---
         correction_prompt = (
             f"{prompt_instruction}\n\n"
-            f"CRITICAL ERROR: Your previous response failed JSON schema validation with error:\n"
-            f"{str(err)}\n\n"
-            f"Please re-analyze the image carefully and output ONLY valid JSON matching the exact required keys."
+            "CRITICAL ERROR: Your previous response failed JSON schema validation.\n\n"
+            "Re-analyze the image and output ONLY valid JSON matching the exact required keys."
         )
 
         try:
-            retry_response = ollama_client.chat(
-                model="gemma4:31b-cloud",
-                messages=[
-                    {
-                        "requirement": "user",
-                        "content": correction_prompt,
-                        "images": [base64_image],
-                    }
-                ],
-                format=target_schema.model_json_schema(),
-                options={"temperature": 0.0},
-            )
+            retry_response = await call_provider(correction_prompt, attempt=2)
 
             raw_retry_content = cleanup_raw_content(retry_response.message.content)
             return target_schema.model_validate_json(raw_retry_content)
 
-        except (ValidationError, json.JSONDecodeError, ValueError) as final_err:
-            logger.error(f"[Attempt 2 Failed] Retry exhausted. Error: {final_err}")
+        except HTTPException:
+            raise
+        except (ValidationError, json.JSONDecodeError, ValueError):
+            metrics.increment("model_schema_failures_total")
+            logger.error(
+                "Vision output failed schema validation after the bounded retry."
+            )
             return None
 
-        except Exception as e:
+        except Exception as exc:
+            logger.error("Vision provider retry failed.")
             raise HTTPException(
-                status_code=500,
-                detail=f"Ollama Cloud Engine retry execution failure: {str(e)}",
-            )
+                status_code=502,
+                detail="Vision provider retry failed.",
+            ) from exc
 
-    except Exception as e:
+    except Exception as exc:
+        logger.error("Vision provider request failed.")
         raise HTTPException(
-            status_code=500, detail=f"Ollama Cloud Engine execution failure: {str(e)}"
-        )
+            status_code=502, detail="Vision provider request failed."
+        ) from exc
 
 
 # --- Public Functional Extractors ---
@@ -135,6 +178,7 @@ async def _call_vision_model(
 async def extract_thai_id(file_bytes: bytes) -> Optional[ThaiIDExtraction]:
     """Extracts Thai National ID card fields into structured JSON from image bytes."""
     prompt = (
+        f"PROMPT_VERSION: {THAI_ID_PROMPT_VERSION}\n\n"
         "Analyze the image of the Thai National ID Card and extract the fields into JSON.\n\n"
         "### REQUIRED JSON STRUCTURE\n"
         "1. 'visual_checks': An object performing structural verification with exact boolean keys:\n"
@@ -177,6 +221,7 @@ async def extract_medical_receipt(
 ) -> Optional[MedicalReceiptExtraction]:
     """Extracts medical receipt line items and balance totals into structured JSON from image bytes."""
     prompt = (
+        f"PROMPT_VERSION: {MEDICAL_RECEIPT_PROMPT_VERSION}\n\n"
         "Analyze the image of the medical receipt or clinic invoice and extract the details into JSON.\n\n"
         "You MUST structure the JSON with these exact keys at the root:\n"
         "- 'hospital_name': The clear text string name of the clinic or hospital.\n"

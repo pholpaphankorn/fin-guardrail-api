@@ -6,9 +6,9 @@
       "reasoning": "Header text clearly visible."
     },
     "has_garuda_emblem": {
-      "value": true,
+      "value": false,
       "confidence": 0.95,
-      "reasoning": "Emblem visible at top-left."
+      "reasoning": "Synthetic card uses a generic bird icon, not an official emblem."
     },
     "has_microchip": {
       "value": true,
@@ -32,14 +32,14 @@
     "reasoning": "Clear text"
   },
   "first_name_th": {
-    "value": "TEST",
-    "confidence": 0.98,
-    "reasoning": "Clear text"
+    "value": null,
+    "confidence": 0.0,
+    "reasoning": "Synthetic fixture contains no Thai personal name."
   },
   "last_name_th": {
-    "value": "USER",
-    "confidence": 0.98,
-    "reasoning": "Clear text"
+    "value": null,
+    "confidence": 0.0,
+    "reasoning": "Synthetic fixture contains no Thai personal name."
   },
   "first_name_en": {
     "value": "TEST",
@@ -73,12 +73,12 @@
   },
   "issuing_officer_th": {
     "value": null,
-    "confidence": 0.85,
-    "reasoning": "Slight ink stamp overlap over officer title"
+    "confidence": 0.0,
+    "reasoning": "Synthetic fixture contains no issuing officer."
   },
   "religion_th": {
     "value": null,
-    "confidence": 0.95,
-    "reasoning": "Clear text"
+    "confidence": 0.0,
+    "reasoning": "Synthetic fixture contains no religion."
   }
 }

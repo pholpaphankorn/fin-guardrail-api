@@ -7,11 +7,13 @@ from fastapi import HTTPException, UploadFile
 
 from app.services.image_processor import (
     resize_image_if_needed,
+    detect_image_content_type,
     evaluate_image_blur,
     get_resized_image_bytes,
     evaluate_blur_dependency,
     MAX_IMAGE_DIMENSION,
     DEFAULT_BLUR_THRESHOLD,
+    MAX_UPLOAD_BYTES,
 )
 
 # --- Helper Functions for Generating Synthetic Image Streams ---
@@ -65,11 +67,18 @@ def create_mock_upload_file(file_bytes: bytes, filename: str) -> UploadFile:
 
 class TestPureImageProcessing:
 
+    def test_detect_image_content_type_uses_binary_signature(self):
+        png_bytes = create_synthetic_image_bytes(100, 100, ext=".png")
+        jpeg_bytes = create_synthetic_image_bytes(100, 100, ext=".jpg")
+
+        assert detect_image_content_type(png_bytes) == "image/png"
+        assert detect_image_content_type(jpeg_bytes) == "image/jpeg"
+        assert detect_image_content_type(b"not an image") is None
+
     def test_resize_image_if_needed_no_resize(self):
         """Happy case: Small image stays untouched."""
         img = np.zeros((500, 800, 3), dtype=np.uint8)
-        resized, was_resized = resize_image_if_needed(
-            img, max_dim=MAX_IMAGE_DIMENSION)
+        resized, was_resized = resize_image_if_needed(img, max_dim=MAX_IMAGE_DIMENSION)
 
         assert was_resized is False
         assert resized.shape == (500, 800, 3)
@@ -77,8 +86,7 @@ class TestPureImageProcessing:
     def test_resize_image_if_needed_oversized_landscape(self):
         """Happy case: Resizes large width (>1920px) while maintaining aspect ratio."""
         img = np.zeros((2000, 4000, 3), dtype=np.uint8)  # 2:1 ratio
-        resized, was_resized = resize_image_if_needed(
-            img, max_dim=MAX_IMAGE_DIMENSION)
+        resized, was_resized = resize_image_if_needed(img, max_dim=MAX_IMAGE_DIMENSION)
 
         assert was_resized is True
         assert max(resized.shape[:2]) == MAX_IMAGE_DIMENSION
@@ -88,8 +96,7 @@ class TestPureImageProcessing:
     def test_resize_image_if_needed_oversized_portrait(self):
         """Happy case: Resizes large height (>1920px) while maintaining aspect ratio."""
         img = np.zeros((3000, 1500, 3), dtype=np.uint8)  # 2:1 ratio
-        resized, was_resized = resize_image_if_needed(
-            img, max_dim=MAX_IMAGE_DIMENSION)
+        resized, was_resized = resize_image_if_needed(img, max_dim=MAX_IMAGE_DIMENSION)
 
         assert was_resized is True
         assert resized.shape[0] == MAX_IMAGE_DIMENSION  # Height scaled to 1920
@@ -98,8 +105,7 @@ class TestPureImageProcessing:
     def test_resize_image_if_needed_exact_threshold_edge_case(self):
         """Edge case: Image exact max dimension equal to threshold."""
         img = np.zeros((1080, MAX_IMAGE_DIMENSION, 3), dtype=np.uint8)
-        resized, was_resized = resize_image_if_needed(
-            img, max_dim=MAX_IMAGE_DIMENSION)
+        resized, was_resized = resize_image_if_needed(img, max_dim=MAX_IMAGE_DIMENSION)
 
         assert was_resized is False
         assert resized.shape == (1080, MAX_IMAGE_DIMENSION, 3)
@@ -151,8 +157,7 @@ class TestFastAPIDependencies:
     async def test_get_resized_image_bytes_resizes_oversized_file(self):
         """Happy case: Large image file is successfully resized down."""
         large_bytes = create_synthetic_image_bytes(3000, 2000, ext=".jpg")
-        upload_file = create_mock_upload_file(
-            large_bytes, "large_receipt.jpeg")
+        upload_file = create_mock_upload_file(large_bytes, "large_receipt.jpeg")
 
         processed_bytes = await get_resized_image_bytes(upload_file)
 
@@ -193,6 +198,46 @@ class TestFastAPIDependencies:
 
         assert exc_info.value.status_code == 400
         assert "Corrupted or unreadable" in exc_info.value.detail
+
+    async def test_get_resized_image_bytes_rejects_oversized_upload(self):
+        upload_file = UploadFile(
+            filename="oversized.jpg",
+            file=io.BytesIO(b"x"),
+            size=MAX_UPLOAD_BYTES + 1,
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await get_resized_image_bytes(upload_file)
+
+        assert exc_info.value.status_code == 413
+        assert "10 MB" in exc_info.value.detail
+
+    async def test_get_resized_image_bytes_rejects_mismatched_media_type(self):
+        raw_bytes = create_synthetic_image_bytes(800, 600)
+        upload_file = UploadFile(
+            filename="document.jpg",
+            file=io.BytesIO(raw_bytes),
+            headers={"content-type": "text/plain"},
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await get_resized_image_bytes(upload_file)
+
+        assert exc_info.value.status_code == 415
+
+    async def test_get_resized_image_bytes_rejects_mismatched_binary_signature(self):
+        png_bytes = create_synthetic_image_bytes(800, 600, ext=".png")
+        upload_file = UploadFile(
+            filename="document.png",
+            file=io.BytesIO(png_bytes),
+            headers={"content-type": "image/jpeg"},
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await get_resized_image_bytes(upload_file)
+
+        assert exc_info.value.status_code == 415
+        assert "does not match" in exc_info.value.detail
 
     async def test_evaluate_blur_dependency_sharp_image(self):
         """Happy case: Sharp image evaluates to is_blurry = False."""
@@ -236,26 +281,27 @@ class TestFastAPIDependencies:
 
 
 @pytest.mark.asyncio
-class TestRealDocumentPipeline:
+class TestSyntheticDocumentPipeline:
 
-    async def test_real_thai_id_card_1_blur_pipeline(self):
-        """Tests the exact FastAPI image processing pipeline for thai_id_card_1.jpg:
+    async def test_synthetic_thai_id_blur_pipeline(self):
+        """Tests the exact FastAPI image pipeline with a synthetic KYC fixture:
 
         1. UploadFile ingestion
         2. Image resizing (get_resized_image_bytes)
         3. Blur assessment (evaluate_blur_dependency)
         """
         image_path = os.path.join(
-            "data", "mock_docs", "thai_id", "thai_id_card_1.jpg")
+            "data", "mock_docs", "thai_id", "synthetic_thai_id.png"
+        )
 
         if not os.path.exists(image_path):
-            pytest.skip(f"Real test image missing at: {image_path}")
+            pytest.skip(f"Synthetic test image missing at: {image_path}")
 
         # 1. Read real file bytes from disk
         with open(image_path, "rb") as f:
             file_bytes = f.read()
 
-        upload_file = create_mock_upload_file(file_bytes, "thai_id_card_1.jpg")
+        upload_file = create_mock_upload_file(file_bytes, "synthetic_thai_id.png")
 
         # 2. Pass through pipeline step 1: Resizing
         resized_bytes = await get_resized_image_bytes(upload_file)
@@ -266,7 +312,7 @@ class TestRealDocumentPipeline:
         )
 
         # Print debug diagnostic metrics
-        print(f"\n[Real Pipeline Test] {image_path}")
+        print(f"\n[Synthetic Pipeline Test] {image_path}")
         print(f" -> Raw Size: {len(file_bytes)} bytes")
         print(f" -> Resized Size: {len(resized_bytes)} bytes")
         print(f" -> Calculated Blur Score: {blur_score:.2f}")
@@ -276,26 +322,27 @@ class TestRealDocumentPipeline:
         # Assert expected pipeline behavior
         assert (
             is_blurry is False
-        ), f"Real ID card flagged as blurry in pipeline! Score: {blur_score:.2f} (Threshold: {DEFAULT_BLUR_THRESHOLD})"
+        ), f"Synthetic ID fixture flagged as blurry! Score: {blur_score:.2f} (Threshold: {DEFAULT_BLUR_THRESHOLD})"
 
-    async def test_real_blurry_medical_receipt_pipeline(self):
-        """Tests the image processor pipeline on a genuinely blurry sample image.
-
-        Verifies that out-of-focus or motion-blurred document photos correctly evaluate to is_blurry = True.
-        """
+    async def test_synthetic_medical_receipt_is_readable(self):
+        """Verifies that the synthetic receipt is not rejected as blurry."""
         image_path = os.path.join(
-            "data", "mock_docs", "thai_medical_receipt", "thai_medical_receipt.jpeg"
+            "data",
+            "mock_docs",
+            "thai_medical_receipt",
+            "synthetic_medical_receipt.png",
         )
 
         if not os.path.exists(image_path):
-            pytest.skip(f"Real test image missing at: {image_path}")
+            pytest.skip(f"Synthetic test image missing at: {image_path}")
 
         # 1. Read real file bytes from disk
         with open(image_path, "rb") as f:
             file_bytes = f.read()
 
         upload_file = create_mock_upload_file(
-            file_bytes, "thai_medical_receipt.jpeg")
+            file_bytes, "synthetic_medical_receipt.png"
+        )
 
         # 2. Pass through pipeline (Resize -> Blur check)
         resized_bytes = await get_resized_image_bytes(upload_file)
@@ -304,14 +351,14 @@ class TestRealDocumentPipeline:
         )
 
         # Print debug diagnostics
-        print(f"\n[Real Pipeline Test] {image_path}")
+        print(f"\n[Synthetic Pipeline Test] {image_path}")
         print(f" -> Raw Size: {len(file_bytes)} bytes")
         print(f" -> Resized Size: {len(resized_bytes)} bytes")
         print(f" -> Calculated Blur Score: {blur_score:.2f}")
         print(f" -> Threshold: {DEFAULT_BLUR_THRESHOLD}")
         print(f" -> Is Blurry Flag: {is_blurry}")
 
-        # 3. Assert that a truly blurry document evaluates as True
+        # This fixture contains crisp text and edges; generated blur cases cover true blur.
         assert (
-            is_blurry is True
-        ), f"Expected blurry image to fail, but got blur_score={blur_score:.2f} (threshold={DEFAULT_BLUR_THRESHOLD})"
+            is_blurry is False
+        ), f"Expected readable image to pass, but got blur_score={blur_score:.2f} (threshold={DEFAULT_BLUR_THRESHOLD})"

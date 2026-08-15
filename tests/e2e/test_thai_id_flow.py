@@ -4,8 +4,10 @@ import pytest
 from httpx import AsyncClient, ASGITransport
 from app.main import app
 
-# Ensure live execution mode (disable mocks)
-os.environ["USE_MOCK_LLM"] = "false"
+pytestmark = pytest.mark.skipif(
+    os.environ.get("RUN_LIVE_E2E", "false").lower() != "true",
+    reason="Set RUN_LIVE_E2E=true to authorize credential-dependent model calls.",
+)
 
 # Path to your test images folder
 MOCK_DOCS_DIR = os.path.join("data", "mock_docs", "thai_id")
@@ -36,7 +38,7 @@ IMAGE_PATHS = get_thai_id_image_paths()
     IMAGE_PATHS,
     ids=[os.path.basename(p) for p in IMAGE_PATHS],  # Shows image name in pytest output
 )
-async def test_full_thai_id_validation_pipeline_e2e(image_path: str):
+async def test_full_thai_id_validation_pipeline_e2e(image_path: str, monkeypatch):
     """E2E Test: Uploads each sample ID photo in data/mock_docs/thai_id through the API pipeline.
 
     Flow: HTTP Request -> Image Pre-processing (Blur) -> Live Vision LLM -> Risk Validator -> HTTP JSON Response
@@ -44,11 +46,14 @@ async def test_full_thai_id_validation_pipeline_e2e(image_path: str):
     if not IMAGE_PATHS:
         pytest.skip(f"No test images found in {MOCK_DOCS_DIR}")
 
+    monkeypatch.setenv("USE_MOCK_LLM", "false")
+
     # 1. Load image file
     with open(image_path, "rb") as image_file:
         file_bytes = image_file.read()
 
     file_name = os.path.basename(image_path)
+    media_type = "image/png" if file_name.lower().endswith(".png") else "image/jpeg"
 
     # 2. Issue multipart POST request to FastAPI endpoint
     async with AsyncClient(
@@ -56,7 +61,7 @@ async def test_full_thai_id_validation_pipeline_e2e(image_path: str):
     ) as ac:
         response = await ac.post(
             "/api/v1/validate/thai-id",
-            files={"file": (file_name, file_bytes, "image/jpeg")},
+            files={"file": (file_name, file_bytes, media_type)},
         )
 
     # 3. Assert HTTP Layer Contract
