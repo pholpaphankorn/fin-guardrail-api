@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Application code lives in `app/`. `app/main.py` defines the FastAPI routes, `app/schemas.py` contains Pydantic contracts, and `app/services/` separates vision extraction, image-quality processing, and deterministic risk validation. Sample documents and mock model responses are under `data/`. Keep fast tests in `tests/unit/`, live API flows in `tests/e2e/`, and extraction benchmarks plus ground truth in `tests/evals/`. `scripts/run_eval.py` exercises the deterministic risk-routing matrix.
+Application code lives in `app/`. `app/main.py` defines FastAPI routes and runtime health, `app/schemas.py` contains Pydantic contracts, and `app/services/` separates vision extraction, image processing, deterministic validation, policy retrieval, and bounded workflow orchestration. Synthetic policies are in `data/policies/`; sample documents and mock responses are elsewhere under `data/`. Keep fast tests in `tests/unit/`, explicitly authorized live flows in `tests/e2e/`, and extraction benchmarks plus ground truth in `tests/evals/`. `scripts/run_eval.py` emits the offline routing, retrieval, grounding, and workflow regression report.
 
 The request pipeline is: image upload -> quality checks -> Ollama vision extraction -> Python validation rules -> risk status. Keep high-stakes decisions in deterministic validators rather than model prompts.
 
@@ -16,7 +16,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Use `uvicorn app.main:app --reload` to run the API locally. Run `python -m pytest tests/unit` for the fast mocked suite, `python scripts/run_eval.py` for deterministic regression cases, and `python -m pytest -m e2e` only when live Ollama access is intended. Run `black --check app tests scripts` before review; use `black app tests scripts` to apply formatting.
+Use `python -m uvicorn app.main:app --reload` to run the API locally. Run `python -m pytest tests/unit` for the fast mocked suite, `python scripts/run_eval.py` for deterministic regression cases, and `RUN_LIVE_E2E=true python -m pytest -m e2e` only when live Ollama access and model calls are intended. Run `black --check app tests scripts` before review; use `black app tests scripts` to apply formatting.
 
 ## Coding Style & Naming Conventions
 

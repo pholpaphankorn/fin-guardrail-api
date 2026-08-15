@@ -1,51 +1,126 @@
 # Fin-Guardrail API
 
-A production-ready Automated Onboarding (KYC) & Claims Risk Gatekeeper Engine built with **FastAPI**. It combines **Multimodal Vision Models** with **Deterministic Python Guardrails** to automate the validation of Thai National IDs and itemized Medical Claim Receipts without relying on blind AI trust.
+An AI-assisted KYC and medical-claim review workflow for Thai financial operations. The service extracts structured document fields with a vision model, applies deterministic risk rules, retrieves synthetic policy evidence, and routes the case through a bounded tool workflow. AI supports extraction and explanation; Python rules or a human retain authority over high-stakes outcomes.
 
-## 🚀 System Architecture Overview
+## Why this exists
 
-This project employs a **Hybrid Verification Design Pattern** built for high reliability and financial risk compliance:
-1. **Multimodal Visual Parser Layer:** Uses a Vision LLM combined with native **Pydantic Structural Outputs** to translate unstructured visual document frames into clean, structured JSON schemas.
-2. **Deterministic Rules Engine:** Bypasses AI generation limits entirely by executing raw Python validation logic to double-check high-stakes rules (e.g., verifying date expirations via standard calendar libraries and checking itemized cost calculations down to decimal precision).
-3. **Automated Risk Router:** Computes a continuous mathematical risk metric vector to dynamically assign transaction states: `APPROVED`, `FLAGGED_FOR_HUMAN_REVIEW`, or `REJECTED`.
+Onboarding and claims teams repeatedly inspect document quality, identity fields, invoice arithmetic, and policy exceptions. Fin-Guardrail automates the repeatable portions while making uncertainty, evidence, and escalation visible. It supports Thai national IDs and itemized medical receipts through a FastAPI API and review UI.
 
-## 🛠️ Folder Layout Architecture
+## Architecture
 
-```text
-fin-guardrail-api/
-├── app/
-│   ├── main.py          # FastAPI web endpoint layer
-│   ├── schemas.py       # Pydantic typing definitions (KYC & Claim profiles)
-│   └── services/
-│       ├── extractor.py # Vision LLM integration with text stripping
-│       └── validator.py # Deterministic mathematical rule evaluations
-├── scripts/
-│   └── run_eval.py      # Automated performance suite regression runner
-├── tests/
-│   ├── test_main.py       # API route / integration tests
-│   ├── test_validator.py  # Rule engine / risk logic unit tests
-│   └── test_extractor.py  # Extractor helper unit tests
-└── README.md            # Technical architecture writeup
+```mermaid
+flowchart LR
+    U[Customer or reviewer] --> I[Upload safety and image quality]
+    I -->|readable| V[Vision extraction]
+    I -->|unreadable| W[Bounded review workflow]
+    V --> S[Pydantic structured output]
+    S --> D[Deterministic KYC and claim rules]
+    D --> W
+    P[Synthetic policy corpus] --> R[Replaceable retriever]
+    R --> W
+    W --> A[Approve or reject by deterministic rule]
+    W --> H[Human review]
+    W --> X[Request resubmission]
+    W --> E[Grounded explanation and citations]
 ```
 
-## Run the document-check UI
+The workflow accepts only allowlisted typed tools, caps attempts, strips free-form flag details from audit events, and fails closed to human review when validation or policy evidence is unavailable. Retrieval currently uses a deterministic lexical baseline; embeddings are intentionally deferred until evaluation demonstrates a need.
 
-Install the dependencies, then start the FastAPI server:
+## Run locally
 
 ```bash
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn app.main:app --reload
+cp .env.example .env
+USE_MOCK_LLM=true python -m uvicorn app.main:app --reload
 ```
 
-Open `http://127.0.0.1:8000` to upload a Thai ID card or medical receipt, or
-choose one of the bundled samples. Swagger remains available at
-`http://127.0.0.1:8000/docs`, and the health check is at `/health`.
+Open `http://127.0.0.1:8000`. API documentation is at `/docs`, liveness at `/health/live`, readiness at `/health/ready`, and aggregate PII-free metrics at `/metrics`.
 
-For a local demo that uses the bundled extraction responses instead of Ollama
-Cloud, run:
+For live extraction, set `USE_MOCK_LLM=false` and provide `OLLAMA_API_KEY` through a secret store. Never commit `.env`.
+
+Docker is also supported:
 
 ```bash
-USE_MOCK_LLM=true uvicorn app.main:app --reload
+docker compose --env-file .env.example up --build
 ```
 
-Live extraction requires `OLLAMA_API_KEY` in `.env`.
+## Example review
+
+```bash
+curl -sS -X POST \
+  -F "file=@data/mock_docs/thai_medical_receipt/synthetic_medical_receipt.png;type=image/png" \
+  http://127.0.0.1:8000/api/v1/validate/medical-receipt
+```
+
+Selected fields from the synthetic mock-mode response:
+
+```json
+{
+  "document_type": "medical_receipt",
+  "status": "APPROVED",
+  "validation_flags": [],
+  "risk_score": 0.0,
+  "workflow": {
+    "action": "APPROVE",
+    "human_review_required": false,
+    "explanation": "Deterministic checks passed and the document may proceed. Supporting policy: OPS-PASS-001.",
+    "policy_citations": [
+      {
+        "policy_id": "OPS-PASS-001",
+        "title": "Automated validation pass",
+        "section": "Operations / Straight-Through Processing"
+      }
+    ]
+  }
+}
+```
+
+The full response also includes confidence-wrapped extracted fields, deterministic flags, and the PII-safe tool audit trail.
+
+## Verification
+
+```bash
+python -m pytest tests/unit
+python scripts/run_eval.py
+black --check app tests scripts
+```
+
+The current offline baseline has 73 passing unit tests. The synthetic evaluation matrix reports 100% schema validity and critical-field exact match for two fixture contracts, routing accuracy (6 cases), retrieval recall@3 (6 cases), workflow task success, citation correctness/precision, grounded-answer rate, and human-escalation accuracy (3 workflow cases), with zero detected prompt-injection leakage. These are deterministic regression results—not live-model accuracy, production throughput, or evidence of business savings. Generated JSON is written to `tests/evals/output/offline_metrics.json` and ignored by Git.
+
+Live field-extraction evaluation is credential-dependent:
+
+```bash
+python tests/evals/run_evals.py
+RUN_LIVE_E2E=true python -m pytest -m e2e
+```
+
+## Trust and security boundaries
+
+- Uploads are limited to JPEG/PNG, 10 MB, and bounded decoded dimensions; filename, declared MIME, and binary signature must agree.
+- Provider calls use a validated 1–120 second timeout and stable 503/504 failures.
+- Provider clients use validated runtime host and secret settings; extraction prompt versions are exposed by `/api/v1/config` for traceability.
+- Identity checksum, expiry, claim arithmetic, confidence, and exclusion checks remain deterministic.
+- The workflow rejects unauthorized tools and inconsistent status/risk pairs.
+- Policy explanations require citations; missing or conflicting evidence escalates instead of inventing a rule.
+- Logs and workflow audits exclude request bodies, query strings, extracted values, names, IDs, and medical details.
+- Fixtures and policies are synthetic. Do not use real customer documents in tests or tickets.
+
+## Repository layout
+
+- `app/main.py` — API, health, readiness, metrics, and UI serving
+- `app/services/` — extraction, image processing, validation, retrieval, and workflow orchestration
+- `data/policies/` — versioned synthetic policy corpus
+- `data/mock_docs/` — generated, visibly watermarked fixtures with documented provenance
+- `tests/unit/` — deterministic service and API tests
+- `tests/e2e/` — credential-dependent live flows
+- `tests/evals/` — extraction ground truth and ignored diagnostic output
+- `scripts/run_eval.py` — offline AI workflow regression gate
+- `docs/runbook.md` — operational verification and failure handling
+
+## Limitations
+
+The dataset is intentionally small and synthetic, with fixture provenance documented in `data/mock_docs/README.md`. The retriever is lexical, workflow state is request-scoped rather than persisted, metrics are process-local, and no live extraction or container build was verified in the current restricted environment. Production adoption would require representative consented data, policy-owner review, durable case storage, authentication/authorization, rate limiting, external telemetry, and measured SLOs.
+
+Security note: the repository's pre-refinement commit contains undocumented realistic identity and medical samples. This working tree deletes and replaces them, but Git history still retains the old blobs. Do not publish or fork that history until the deletions are committed and the repository owner decides whether an explicitly authorized history purge and downstream notification are required.
