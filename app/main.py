@@ -1,4 +1,9 @@
+import os
+from pathlib import Path
+
 from fastapi import FastAPI, Depends
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
 from app.services.validator import (
@@ -13,16 +18,39 @@ from app.schemas import RiskAssessmentResponse
 
 load_dotenv()
 
+APP_DIR = Path(__file__).resolve().parent
+PROJECT_DIR = APP_DIR.parent
+STATIC_DIR = APP_DIR / "static"
+SAMPLE_DIR = PROJECT_DIR / "data" / "mock_docs"
+
 app = FastAPI(
     title="Fin-Guardrail API",
     description="Automated Onboarding & Claims Risk Engine with Hybrid LLM/Deterministic Guardrails",
     version="1.0.0",
 )
 
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+app.mount("/samples", StaticFiles(directory=SAMPLE_DIR), name="samples")
+
 
 @app.get("/")
 async def root():
+    """Serves the document validation user interface."""
+    return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/health")
+async def health():
     return {"status": "healthy", "service": "fin-guardrail-api"}
+
+
+@app.get("/api/v1/config")
+async def ui_config():
+    """Returns non-sensitive runtime details needed by the demo UI."""
+    return {
+        "demo_mode": os.environ.get("USE_MOCK_LLM", "false").lower() == "true",
+        "vision_provider": "Ollama Cloud",
+    }
 
 
 @app.post("/api/v1/validate/thai-id", response_model=RiskAssessmentResponse)

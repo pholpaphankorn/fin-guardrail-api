@@ -16,7 +16,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Use `uvicorn app.main:app --reload` to run the API locally. Run `pytest tests/unit` for the fast mocked suite, `python scripts/run_eval.py` for deterministic regression cases, and `pytest -m e2e` only when live Ollama access is intended. Run `black --check app tests scripts` before review; use `black app tests scripts` to apply formatting.
+Use `uvicorn app.main:app --reload` to run the API locally. Run `python -m pytest tests/unit` for the fast mocked suite, `python scripts/run_eval.py` for deterministic regression cases, and `python -m pytest -m e2e` only when live Ollama access is intended. Run `black --check app tests scripts` before review; use `black app tests scripts` to apply formatting.
 
 ## Coding Style & Naming Conventions
 

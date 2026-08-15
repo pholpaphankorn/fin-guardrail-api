@@ -26,3 +26,26 @@ fin-guardrail-api/
 │   ├── test_validator.py  # Rule engine / risk logic unit tests
 │   └── test_extractor.py  # Extractor helper unit tests
 └── README.md            # Technical architecture writeup
+```
+
+## Run the document-check UI
+
+Install the dependencies, then start the FastAPI server:
+
+```bash
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+```
+
+Open `http://127.0.0.1:8000` to upload a Thai ID card or medical receipt, or
+choose one of the bundled samples. Swagger remains available at
+`http://127.0.0.1:8000/docs`, and the health check is at `/health`.
+
+For a local demo that uses the bundled extraction responses instead of Ollama
+Cloud, run:
+
+```bash
+USE_MOCK_LLM=true uvicorn app.main:app --reload
+```
+
+Live extraction requires `OLLAMA_API_KEY` in `.env`.

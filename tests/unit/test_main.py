@@ -1,8 +1,11 @@
+import json
+from pathlib import Path
+
 import pytest
 from httpx import AsyncClient, ASGITransport
 from unittest.mock import patch
 from app.main import app
-from app.schemas import ThaiIDExtraction, MedicalReceiptExtraction, LineItem
+from app.schemas import ThaiIDExtraction, MedicalReceiptExtraction
 
 
 @pytest.fixture
@@ -21,15 +24,20 @@ def create_dummy_image_bytes() -> bytes:
     return buf.tobytes()
 
 
+def load_mock_extraction(filename: str, schema):
+    mock_path = Path("data/mock_jsons") / filename
+    return schema.model_validate(json.loads(mock_path.read_text(encoding="utf-8")))
+
+
 @pytest.mark.asyncio
 class TestMainEndpoints:
 
-    async def test_root_health_check_happy_case(self):
-        """Happy Case: GET / returns healthy status."""
+    async def test_health_check_happy_case(self):
+        """Happy Case: GET /health returns healthy status."""
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as ac:
-            response = await ac.get("/")
+            response = await ac.get("/health")
         assert response.status_code == 200
         assert response.json() == {"status": "healthy", "service": "fin-guardrail-api"}
 
@@ -103,13 +111,8 @@ class TestMainEndpoints:
 
         app.dependency_overrides[evaluate_blur_dependency] = mock_blur_override
         try:
-            mock_extract.return_value = ThaiIDExtraction(
-                id_number="1234567890123",
-                first_name_en="John",
-                last_name_en="Doe",
-                date_of_birth="1990-01-01",
-                expiry_date="2030-01-01",
-                confidence_score=0.98,
+            mock_extract.return_value = load_mock_extraction(
+                "mock_thai_id.json", ThaiIDExtraction
             )
             mock_risk.return_value = ([], 0.0)
 
@@ -147,12 +150,8 @@ class TestMainEndpoints:
 
         app.dependency_overrides[evaluate_blur_dependency] = mock_blur_override
         try:
-            mock_extract.return_value = MedicalReceiptExtraction(
-                hospital_name="General Hospital",
-                receipt_date="2026-03-01",
-                items=[LineItem(description="Consultation", cost=500.0)],
-                total_amount=500.0,
-                confidence_score=0.85,
+            mock_extract.return_value = load_mock_extraction(
+                "mock_medical_receipt.json", MedicalReceiptExtraction
             )
             mock_risk.return_value = (["ARITHMETIC_MISMATCH"], 0.5)
 

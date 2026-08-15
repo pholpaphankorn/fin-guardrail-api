@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Upload a Thai ID card or medical receipt and review the Fin Guardrail validation result."
+    />
+    <title>Fin Guardrail · Document Check</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    <script src="/static/app.js" defer></script>
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="Fin Guardrail home">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 32 32" requirement="img">
+              <path d="M16 3 27 7v8c0 7.2-4.4 11.6-11 14-6.6-2.4-11-6.8-11-14V7l11-4Z" />
+              <path d="m11.5 16 3 3 6.5-7" />
+            </svg>
+          </span>
+          <span>FIN GUARDRAIL</span>
+        </a>
+        <div class="topbar-actions">
+          <span class="mode-pill" id="mode-pill"><span></span> Checking mode</span>
+          <a href="/docs">API docs <span aria-hidden="true">↗</span></a>
+        </div>
+      </header>
+
+      <main>
+        <section class="hero">
+          <div class="eyebrow"><span></span> DOCUMENT INTELLIGENCE</div>
+          <h1>Know what passes.<br /><em>Before it matters.</em></h1>
+          <p>
+            Upload a Thai ID card or medical receipt. Our hybrid engine reads the
+            document, checks deterministic rules, and gives you a clear verdict.
+          </p>
+          <div class="trust-row" aria-label="Validation features">
+            <span>✓ Image quality checks</span>
+            <span>✓ Structured extraction</span>
+            <span>✓ Deterministic rules</span>
+          </div>
+        </section>
+
+        <section class="workspace" aria-labelledby="workspace-title">
+          <div class="workspace-head">
+            <div>
+              <span class="step-label">STEP 01</span>
+              <h2 id="workspace-title">Choose a document</h2>
+            </div>
+            <p>Use your own image or start with one of our provided examples.</p>
+          </div>
+
+          <div class="document-tabs" requirement="tablist" aria-label="Document type">
+            <button class="doc-tab active" type="button" requirement="tab" aria-selected="true" data-type="thai-id">
+              <span class="tab-icon" aria-hidden="true">▤</span>
+              <span><strong>Thai ID card</strong><small>Identity & KYC check</small></span>
+            </button>
+            <button class="doc-tab" type="button" requirement="tab" aria-selected="false" data-type="medical-receipt">
+              <span class="tab-icon" aria-hidden="true">✚</span>
+              <span><strong>Medical receipt</strong><small>Claims & totals check</small></span>
+            </button>
+          </div>
+
+          <div class="upload-grid">
+            <div class="upload-column">
+              <div class="drop-zone" id="drop-zone" tabindex="0" requirement="button" aria-label="Upload document image">
+                <input id="file-input" type="file" accept="image/png,image/jpeg" hidden />
+                <div class="empty-upload" id="empty-upload">
+                  <span class="upload-icon" aria-hidden="true">↑</span>
+                  <strong>Drop your document here</strong>
+                  <span>or <u>browse files</u> from your device</span>
+                  <small>JPG, JPEG or PNG</small>
+                </div>
+                <div class="preview-wrap" id="preview-wrap" hidden>
+                  <img id="preview-image" alt="Selected document preview" />
+                  <div class="preview-meta">
+                    <div><strong id="file-name"></strong><small id="file-size"></small></div>
+                    <button id="remove-file" type="button" aria-label="Remove selected file">×</button>
+                  </div>
+                </div>
+              </div>
+              <button class="validate-button" id="validate-button" type="button" disabled>
+                <span class="button-label">Run document check</span>
+                <span class="button-arrow" aria-hidden="true">→</span>
+              </button>
+              <p class="privacy-note">Your upload is processed only for this validation request.</p>
+            </div>
+
+            <aside class="samples-panel">
+              <div class="samples-heading">
+                <span class="step-label">OR TRY A SAMPLE</span>
+                <span id="sample-count">2 examples</span>
+              </div>
+              <div class="sample-list" id="sample-list"></div>
+            </aside>
+          </div>
+        </section>
+
+        <section class="result-section" id="result-section" aria-live="polite" hidden>
+          <div class="result-card">
+            <div class="result-summary">
+              <span class="result-symbol" id="result-symbol">✓</span>
+              <div>
+                <span class="step-label">VALIDATION RESULT</span>
+                <h2 id="result-title">Document approved</h2>
+                <p id="result-reasoning"></p>
+              </div>
+              <div class="score-block">
+                <small>Risk score</small>
+                <strong id="risk-score">0%</strong>
+              </div>
+            </div>
+            <div class="result-body">
+              <section>
+                <h3>Validation checks</h3>
+                <div id="flags-list" class="flags-list"></div>
+              </section>
+              <section>
+                <h3>Extracted fields</h3>
+                <div id="extracted-fields" class="field-grid"></div>
+              </section>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer>
+        <span>FIN GUARDRAIL / HYBRID VERIFICATION ENGINE</span>
+        <span>FastAPI · Vision model · Python rules</span>
+      </footer>
+    </div>
+  </body>
+</html>
