@@ -37,7 +37,7 @@ def make_thai_id(**overrides):
         "issue_date": extracted("2020-01-01"),
         "expiry_date": extracted("2030-01-01"),
         "issuing_officer_th": extracted("เจ้าหน้าที่ทดสอบ"),
-        "religion_th": extracted(null),
+        "religion_th": extracted("พุทธ"),
     }
     fields.update(overrides)
     return ThaiIDExtraction(**fields)
