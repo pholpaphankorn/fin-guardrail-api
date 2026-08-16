@@ -57,7 +57,7 @@ def thai_id_case(*, id_number: str = "1234567890121", expiry_date: str):
         issue_date=extracted("2024-05-11"),
         expiry_date=extracted(expiry_date),
         issuing_officer_th=extracted("เจ้าหน้าที่ทดสอบ"),
-        religion_th=extracted(null),
+        religion_th=extracted("พุทธ"),
     )
 
 
