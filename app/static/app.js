@@ -84,12 +84,14 @@ function renderSamples() {
     image.src = sample.url;
     image.alt = "";
     const copy = document.createElement("span");
+    copy.className = "sample-copy";
     const name = document.createElement("strong");
     name.textContent = sample.name;
     const detail = document.createElement("small");
     detail.textContent = sample.detail;
     copy.append(name, detail);
     const arrow = document.createElement("span");
+    arrow.className = "sample-arrow";
     arrow.textContent = "→";
     button.append(image, copy, arrow);
 

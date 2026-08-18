@@ -102,10 +102,11 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .sample-card { width: 100%; display: grid; grid-template-columns: 84px 1fr auto; align-items: center; gap: 14px; padding: 10px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); text-align: left; cursor: pointer; transition: 160ms ease; }
 .sample-card:hover, .sample-card.selected { border-color: var(--green); box-shadow: 0 8px 25px rgba(31, 113, 95, 0.1); }
 .sample-card img { width: 84px; height: 68px; object-fit: cover; background: #e6e1d6; }
+.sample-copy { min-width: 0; }
 .sample-card strong, .sample-card small { display: block; }
 .sample-card strong { font-size: 0.78rem; }
 .sample-card small { margin-top: 5px; color: var(--ink-soft); font-size: 0.67rem; line-height: 1.35; }
-.sample-card > span { width: 26px; height: 26px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 50%; color: var(--green); }
+.sample-arrow { width: 26px; height: 26px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 50%; color: var(--green); }
 
 .result-section { padding-top: 28px; }
 .result-card { border: 1px solid var(--line); background: var(--paper); box-shadow: var(--shadow); }
