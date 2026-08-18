@@ -1,0 +1,25 @@
+services:
+  api:
+    build:
+      context: .
+      target: debug
+    ports:
+      - "127.0.0.1:5678:5678"
+    volumes:
+      - ./app:/app/app:ro
+      - ./data:/app/data:ro
+    command:
+      - python
+      - -m
+      - debugpy
+      - --listen
+      - 0.0.0.0:5678
+      - --wait-for-client
+      - -m
+      - uvicorn
+      - app.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --reload
