@@ -20,6 +20,12 @@ const endpoints = {
   "medical-receipt": "/api/v1/validate/medical-receipt",
 };
 
+const qualityDispositionLabels = {
+  CONTINUE: "QUALITY PASSED",
+  HUMAN_REVIEW: "REVIEW REQUIRED",
+  REQUEST_RESUBMISSION: "RESUBMISSION REQUIRED",
+};
+
 const state = { documentType: "thai-id", file: null, previewUrl: null };
 
 const tabs = [...document.querySelectorAll(".doc-tab")];
@@ -202,9 +208,9 @@ function renderWorkflow(workflow) {
 }
 
 function renderQuality(quality) {
-  document.querySelector("#quality-disposition").textContent = humanize(
-    quality?.disposition || "UNAVAILABLE",
-  );
+  const disposition = quality?.disposition || "UNAVAILABLE";
+  document.querySelector("#quality-disposition").textContent =
+    qualityDispositionLabels[disposition] || humanize(disposition);
   document.querySelector("#quality-explanation").textContent =
     quality?.explanation || "No quality evidence was returned for this request.";
 
