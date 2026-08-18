@@ -100,7 +100,7 @@ async def _call_vision_model(
                     model=settings.vision_model,
                     messages=[
                         {
-                            "requirement": "user",
+                            "role": "user",
                             "content": prompt,
                             "images": [base64_image],
                         }
