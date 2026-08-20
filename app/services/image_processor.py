@@ -1,17 +1,25 @@
 from dataclasses import dataclass
+from pathlib import Path
 
 import cv2
 import numpy as np
 from fastapi import UploadFile, File, HTTPException, Depends
 
 from app.schemas import ImageQualitySignals
+from app.services.pdf_processor import render_single_page_pdf
 
 DEFAULT_BLUR_THRESHOLD = 50.0
 MIN_PROCESSED_DIMENSION = 320
 MAX_IMAGE_DIMENSION = 1920
 MAX_IMAGE_PIXELS = 25_000_000
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
-ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png"}
+ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "application/pdf"}
+CONTENT_TYPE_BY_EXTENSION = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".pdf": "application/pdf",
+}
 
 
 @dataclass(frozen=True)
@@ -42,12 +50,43 @@ class ImageQualityAssessment:
 
 
 def detect_image_content_type(file_bytes: bytes) -> str | None:
-    """Identify supported image formats from their binary signatures."""
+    """Identify supported document formats from their binary signatures."""
     if file_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
         return "image/png"
     if file_bytes.startswith(b"\xff\xd8\xff"):
         return "image/jpeg"
+    if file_bytes.startswith(b"%PDF-"):
+        return "application/pdf"
     return None
+
+
+def normalize_image_bytes(file_bytes: bytes, output_extension: str) -> bytes:
+    """Validate, safely resize, and encode image bytes for vision extraction."""
+    nparr = np.frombuffer(file_bytes, np.uint8)
+    image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+    if image is None:
+        raise HTTPException(
+            status_code=400, detail="Corrupted or unreadable image file."
+        )
+    if image.shape[0] * image.shape[1] > MAX_IMAGE_PIXELS:
+        raise HTTPException(
+            status_code=413,
+            detail="Decoded image dimensions exceed the processing safety limit.",
+        )
+
+    resized_image, was_resized = resize_image_if_needed(image, MAX_IMAGE_DIMENSION)
+    if not was_resized:
+        return file_bytes
+
+    encode_extension = ".jpg" if output_extension in {".jpg", ".jpeg"} else ".png"
+    options = [int(cv2.IMWRITE_JPEG_QUALITY), 90] if encode_extension == ".jpg" else []
+    success, encoded_img = cv2.imencode(encode_extension, resized_image, options)
+    if not success:
+        raise HTTPException(
+            status_code=400, detail="Could not normalize document image."
+        )
+    return encoded_img.tobytes()
 
 
 def resize_image_if_needed(
@@ -112,24 +151,25 @@ def evaluate_image_blur(
 async def get_resized_image_bytes(file: UploadFile = File(...)) -> bytes:
     """
     Dependency 1: Format validation + Smart Resize.
-    Reads upload stream, validates file extension, downscales if > 1920px,
-    and returns optimized image bytes.
+    Reads an image or single-page PDF, validates its format, renders PDFs,
+    downscales if needed, and returns normalized image bytes.
     """
     filename = file.filename or ""
-    if not filename.lower().endswith((".png", ".jpg", ".jpeg")):
+    extension = Path(filename).suffix.lower()
+    if extension not in CONTENT_TYPE_BY_EXTENSION:
         raise HTTPException(
             status_code=400,
-            detail="Invalid file format. Upload an image file (.png, .jpg, .jpeg).",
+            detail="Invalid file format. Upload a PNG, JPEG, or single-page PDF.",
         )
     if file.content_type and file.content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(
             status_code=415,
-            detail="Unsupported media type. Upload a JPEG or PNG image.",
+            detail="Unsupported media type. Upload a PNG, JPEG, or PDF.",
         )
     if file.size is not None and file.size > MAX_UPLOAD_BYTES:
         raise HTTPException(
             status_code=413,
-            detail=f"Image exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit.",
+            detail=f"File exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit.",
         )
 
     file_bytes = await file.read(MAX_UPLOAD_BYTES + 1)
@@ -138,11 +178,11 @@ async def get_resized_image_bytes(file: UploadFile = File(...)) -> bytes:
     if len(file_bytes) > MAX_UPLOAD_BYTES:
         raise HTTPException(
             status_code=413,
-            detail=f"Image exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit.",
+            detail=f"File exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit.",
         )
 
     detected_type = detect_image_content_type(file_bytes)
-    expected_type = "image/png" if filename.lower().endswith(".png") else "image/jpeg"
+    expected_type = CONTENT_TYPE_BY_EXTENSION[extension]
     declared_type = file.content_type
     if detected_type is not None and (
         detected_type != expected_type
@@ -150,33 +190,19 @@ async def get_resized_image_bytes(file: UploadFile = File(...)) -> bytes:
     ):
         raise HTTPException(
             status_code=415,
-            detail="Image content does not match its filename or declared media type.",
+            detail="File content does not match its filename or declared media type.",
         )
-
-    nparr = np.frombuffer(file_bytes, np.uint8)
-    image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-
-    if image is None:
+    if expected_type == "application/pdf" and detected_type is None:
         raise HTTPException(
-            status_code=400, detail="Corrupted or unreadable image file."
-        )
-    if image.shape[0] * image.shape[1] > MAX_IMAGE_PIXELS:
-        raise HTTPException(
-            status_code=413,
-            detail="Decoded image dimensions exceed the processing safety limit.",
+            status_code=415,
+            detail="File content does not match its filename or declared media type.",
         )
 
-    resized_image, was_resized = resize_image_if_needed(image, MAX_IMAGE_DIMENSION)
+    if expected_type == "application/pdf":
+        rendered_bytes = await render_single_page_pdf(file_bytes)
+        return normalize_image_bytes(rendered_bytes, ".png")
 
-    if was_resized:
-        ext = ".jpg" if filename.lower().endswith((".jpg", ".jpeg")) else ".png"
-        success, encoded_img = cv2.imencode(
-            ext, resized_image, [int(cv2.IMWRITE_JPEG_QUALITY), 90]
-        )
-        if success:
-            return encoded_img.tobytes()
-
-    return file_bytes
+    return normalize_image_bytes(file_bytes, extension)
 
 
 async def evaluate_image_quality_dependency(

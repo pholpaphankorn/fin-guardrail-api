@@ -8,6 +8,10 @@ RUN groupadd --system app && useradd --system --gid app --home-dir /app app
 
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir --requirement requirements.txt
 

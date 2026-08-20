@@ -17,6 +17,7 @@ async def test_ui_home_serves_document_validator():
     assert "Know what passes" in response.text
     assert "Thai ID card" in response.text
     assert "Medical receipt" in response.text
+    assert "single-page PDF" in response.text
     assert "Policy evidence" in response.text
     assert "Tool audit trail" in response.text
     assert "Document quality evidence" in response.text

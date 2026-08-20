@@ -74,6 +74,7 @@ class TestPureImageProcessing:
 
         assert detect_image_content_type(png_bytes) == "image/png"
         assert detect_image_content_type(jpeg_bytes) == "image/jpeg"
+        assert detect_image_content_type(b"%PDF-1.7\n") == "application/pdf"
         assert detect_image_content_type(b"not an image") is None
 
     def test_resize_image_if_needed_no_resize(self):
@@ -171,13 +172,46 @@ class TestFastAPIDependencies:
     async def test_get_resized_image_bytes_invalid_extension_failure(self):
         """Failure case: Invalid file extension triggers HTTP 400."""
         raw_bytes = create_synthetic_image_bytes(800, 600)
-        upload_file = create_mock_upload_file(raw_bytes, "document.pdf")
+        upload_file = create_mock_upload_file(raw_bytes, "document.txt")
 
         with pytest.raises(HTTPException) as exc_info:
             await get_resized_image_bytes(upload_file)
 
         assert exc_info.value.status_code == 400
         assert "Invalid file format" in exc_info.value.detail
+
+    async def test_get_resized_image_bytes_renders_single_page_pdf(self, monkeypatch):
+        rendered_bytes = create_synthetic_image_bytes(800, 1200, ext=".png")
+
+        async def render_pdf(pdf_bytes: bytes) -> bytes:
+            assert pdf_bytes.startswith(b"%PDF-")
+            return rendered_bytes
+
+        monkeypatch.setattr(
+            "app.services.image_processor.render_single_page_pdf", render_pdf
+        )
+        upload_file = UploadFile(
+            filename="receipt.pdf",
+            file=io.BytesIO(b"%PDF-1.7\nsynthetic"),
+            headers={"content-type": "application/pdf"},
+        )
+
+        processed_bytes = await get_resized_image_bytes(upload_file)
+
+        assert processed_bytes == rendered_bytes
+
+    async def test_get_resized_image_bytes_rejects_invalid_pdf_signature(self):
+        upload_file = UploadFile(
+            filename="receipt.pdf",
+            file=io.BytesIO(b"not-a-pdf"),
+            headers={"content-type": "application/pdf"},
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await get_resized_image_bytes(upload_file)
+
+        assert exc_info.value.status_code == 415
+        assert "does not match" in exc_info.value.detail
 
     async def test_get_resized_image_bytes_empty_file_failure(self):
         """Failure case: Empty byte stream triggers HTTP 400."""

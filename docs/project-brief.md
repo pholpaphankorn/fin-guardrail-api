@@ -28,7 +28,7 @@ Fin-Guardrail turns Thai KYC and medical-claim document review into a bounded AI
 
 ## Measured Evidence
 
-- 83 offline unit tests pass.
+- 89 offline unit tests pass; the Poppler integration check skips when the renderer is not installed.
 - Two synthetic extraction fixtures pass schema validation and six critical-field exact-match checks; this verifies the offline contract, not model accuracy.
 - Routing matrix: 6/6 correct, zero false approvals or false rejections.
 - Document-quality matrix: 6/6 correct continue, human-review, or resubmission dispositions.

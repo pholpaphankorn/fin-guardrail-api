@@ -10,7 +10,8 @@ Onboarding and claims teams repeatedly inspect document quality, identity fields
 
 ```mermaid
 flowchart LR
-    U[Customer or reviewer] --> I[Upload safety and image quality]
+    U[Customer or reviewer] --> N[Image or single-page PDF normalization]
+    N --> I[Upload safety and image quality]
     I -->|advisory signals| V[Vision extraction]
     V --> S[Pydantic structured output]
     S --> Q[Completeness and confidence quality report]
@@ -34,11 +35,15 @@ Image blur and processed dimensions are advisory rather than automatic rejection
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+# macOS: brew install poppler
+# Ubuntu/Debian: sudo apt-get install poppler-utils
 cp .env.example .env
 USE_MOCK_LLM=true python -m uvicorn app.main:app --reload
 ```
 
 Open `http://127.0.0.1:8000`. API documentation is at `/docs`, liveness at `/health/live`, readiness at `/health/ready`, and aggregate PII-free metrics at `/metrics`.
+
+Local PDF ingestion requires Poppler's `pdfinfo` and `pdftoppm` commands. The Docker image installs them automatically. PDF uploads must contain exactly one unencrypted page; the service renders that page to a bounded PNG before running the existing image-quality and extraction pipeline.
 
 For live extraction, set `USE_MOCK_LLM=false` and provide `OLLAMA_API_KEY` through a secret store. Never commit `.env`.
 
@@ -98,7 +103,7 @@ python scripts/run_eval.py
 black --check app tests scripts
 ```
 
-The current offline baseline has 83 passing unit tests. The synthetic evaluation matrix reports 100% schema validity and critical-field exact match for two fixture contracts, risk routing accuracy (6 cases), document-quality routing accuracy (6 cases), retrieval recall@3 (7 cases), workflow task success, citation correctness/precision, grounded-answer rate, and human-escalation accuracy (4 workflow cases), with zero detected prompt-injection leakage. These are deterministic regression results—not live-model accuracy, production throughput, or evidence of business savings. Generated JSON is written to `tests/evals/output/offline_metrics.json` and ignored by Git.
+The current offline baseline has 89 passing unit tests; the real Poppler integration check skips when Poppler is unavailable. The synthetic evaluation matrix reports 100% schema validity and critical-field exact match for two fixture contracts, risk routing accuracy (6 cases), document-quality routing accuracy (6 cases), retrieval recall@3 (7 cases), workflow task success, citation correctness/precision, grounded-answer rate, and human-escalation accuracy (4 workflow cases), with zero detected prompt-injection leakage. These are deterministic regression results—not live-model accuracy, production throughput, or evidence of business savings. Generated JSON is written to `tests/evals/output/offline_metrics.json` and ignored by Git.
 
 Live field-extraction evaluation is credential-dependent:
 
@@ -109,7 +114,8 @@ RUN_LIVE_E2E=true python -m pytest -m e2e
 
 ## Trust and security boundaries
 
-- Uploads are limited to JPEG/PNG, 10 MB, and bounded decoded dimensions; filename, declared MIME, and binary signature must agree.
+- Uploads are limited to JPEG, PNG, or single-page PDF files, 10 MB, and bounded decoded dimensions; filename, declared MIME, and binary signature must agree.
+- PDFs are inspected and rendered by timeout-bounded Poppler subprocesses. Encrypted, malformed, and multi-page PDFs are rejected, and rendered output is capped before vision extraction.
 - Blur and image dimensions are advisory signals; extraction completeness and confidence control quality routing, and uncertainty cannot independently cause an irreversible decision.
 - Provider calls use a validated 1–120 second timeout and stable 503/504 failures.
 - Provider clients use validated runtime host and secret settings; extraction prompt versions are exposed by `/api/v1/config` for traceability.

@@ -50,7 +50,7 @@
               <span class="step-label">STEP 01</span>
               <h2 id="workspace-title">Choose a document</h2>
             </div>
-            <p>Use your own image or start with one of our provided examples.</p>
+            <p>Use your own image or single-page PDF, or start with one of our examples.</p>
           </div>
 
           <div class="document-tabs" requirement="tablist" aria-label="Document type">
@@ -66,13 +66,13 @@
 
           <div class="upload-grid">
             <div class="upload-column">
-              <div class="drop-zone" id="drop-zone" tabindex="0" requirement="button" aria-label="Upload document image">
-                <input id="file-input" type="file" accept="image/png,image/jpeg" hidden />
+              <div class="drop-zone" id="drop-zone" tabindex="0" requirement="button" aria-label="Upload document image or PDF">
+                <input id="file-input" type="file" accept="image/png,image/jpeg,application/pdf" hidden />
                 <div class="empty-upload" id="empty-upload">
                   <span class="upload-icon" aria-hidden="true">↑</span>
                   <strong>Drop your document here</strong>
                   <span>or <u>browse files</u> from your device</span>
-                  <small>JPG, JPEG or PNG</small>
+                  <small>JPG, JPEG, PNG or single-page PDF</small>
                 </div>
                 <div class="preview-wrap" id="preview-wrap" hidden>
                   <img id="preview-image" alt="Selected document preview" />

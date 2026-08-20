@@ -41,8 +41,11 @@ RUN_LIVE_E2E=true python -m pytest -m e2e
 
 ## Failure handling
 
-- **413 upload rejected:** keep images below 10 MB and the decoded-image safety limit.
-- **415 media rejected:** send JPEG or PNG with the matching media type.
+- **400 PDF rejected:** send exactly one unencrypted, readable PDF page. Multi-page and password-protected PDFs are intentionally unsupported.
+- **408 PDF processing timeout:** treat the document as untrusted or unusually complex; do not retry it indefinitely.
+- **413 upload rejected:** keep documents below 10 MB and within the decoded-image/rendered-page safety limits.
+- **415 media rejected:** send JPEG, PNG, or PDF content with the matching filename and media type.
+- **503 PDF processing unavailable:** install Poppler (`pdfinfo` and `pdftoppm`) or use the supplied Docker image.
 - **503 not ready:** confirm the policy corpus is present and configure mock mode or the provider key.
 - **504 provider timeout:** check provider health and latency; do not raise the timeout above 120 seconds.
 - **Human review fallback:** inspect stable flag codes and policy citations. Audit events intentionally omit document PII.

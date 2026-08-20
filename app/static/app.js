@@ -52,6 +52,8 @@ function clearPreview() {
   state.file = null;
   state.previewUrl = null;
   fileInput.value = "";
+  previewImage.hidden = false;
+  previewImage.removeAttribute("src");
   previewWrap.hidden = true;
   emptyUpload.hidden = false;
   validateButton.disabled = true;
@@ -59,14 +61,20 @@ function clearPreview() {
 }
 
 function selectFile(file, sampleUrl = null) {
-  if (!file || !["image/jpeg", "image/png"].includes(file.type)) {
-    showRequestError("Choose a JPG, JPEG, or PNG image.");
+  if (!file || !["image/jpeg", "image/png", "application/pdf"].includes(file.type)) {
+    showRequestError("Choose a JPG, JPEG, PNG, or single-page PDF.");
     return;
   }
   if (state.previewUrl) URL.revokeObjectURL(state.previewUrl);
   state.file = file;
   state.previewUrl = URL.createObjectURL(file);
-  previewImage.src = state.previewUrl;
+  const isPdf = file.type === "application/pdf";
+  previewImage.hidden = isPdf;
+  if (isPdf) {
+    previewImage.removeAttribute("src");
+  } else {
+    previewImage.src = state.previewUrl;
+  }
   fileName.textContent = file.name;
   fileSize.textContent = formatBytes(file.size);
   emptyUpload.hidden = true;
