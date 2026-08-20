@@ -14,7 +14,7 @@ This matrix uses `docs/requirement.md` as the authoritative project record. Scor
 | Reliability and user impact | Safe uploads/errors, extraction-grounded quality routing, timeouts, readiness, request IDs, aggregate metrics, CI definition, container setup, runbook, and review-evidence UI | Validate thresholds with representative consented documents and browser/container execution outside the restricted sandbox | 3 |
 | Accuracy, hallucination, latency, cost | Versioned offline report explicitly labels deterministic mode and reports zero model calls/cost instead of implying live performance | Run and document credential-dependent extraction accuracy separately | 3 |
 | Security, compliance, and trust | The branch tip replaces undocumented realistic assets with generated/watermarked fixtures and adds deterministic authority, bounded uploads, PII-safe logs/audits, prompt-injection containment, and trust boundaries | Obtain owner approval before any history purge; then add auth, durable policy versions, and external security review | 2 |
-| Production-quality Python | Typed FastAPI service; 89 passing tests; validated configuration; Black-clean code; CI, container, health, and metrics artifacts | CI and container execution require an unrestricted environment | 3 |
+| Production-quality Python | Typed FastAPI service; 91 passing tests; validated configuration; Black-clean code; CI, container, health, and metrics artifacts | CI and container execution require an unrestricted environment | 3 |
 | Ship and improve with evidence | Failure-driven loop log, verified local commits, CI definition, offline gates, runbook, and project brief | Run CI on GitHub and validate the live provider when credentials and network access are available | 3 |
 
 ## Baseline Verification — 2026-08-15
@@ -27,7 +27,7 @@ This matrix uses `docs/requirement.md` as the authoritative project record. Scor
 
 ## Current Verified State
 
-- `python -m pytest tests/unit -q`: **89 passed, 1 Poppler integration check skipped because the renderer is unavailable locally**. `python -m pytest -q`: **89 passed, 2 skipped** (Poppler plus the explicitly gated live test).
+- `python -m pytest tests/unit -q`: **91 passed, 1 Poppler integration check skipped because the renderer is unavailable locally**. `python -m pytest -q`: **91 passed, 2 skipped** (Poppler plus the explicitly gated live test).
 - `python scripts/run_eval.py`: **all declared routing, retrieval, workflow, citation, grounding, retry, and fallback gates passed**.
 - `black --check app tests scripts`: **passed**.
 - Generated ID and receipt fixtures are visibly marked as synthetic and have documented provenance. Blur and processed dimensions are advisory; structured extraction completeness and confidence drive quality routing.

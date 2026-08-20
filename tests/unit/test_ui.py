@@ -35,6 +35,8 @@ async def test_ui_assets_and_sample_document_are_available():
 
     assert stylesheet.status_code == 200
     assert script.status_code == 200
+    assert 'fetch("/api/v1/preview"' in script.text
+    assert "previewImage.hidden = false" in script.text
     assert sample.status_code == 200
     assert sample.headers["content-type"] == "image/png"
 

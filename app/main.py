@@ -5,7 +5,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, Depends
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
@@ -23,7 +23,9 @@ from app.services.extractor import (
 from app.services.image_processor import (
     ImageQualityAssessment,
     MAX_UPLOAD_BYTES,
+    detect_image_content_type,
     evaluate_image_quality_dependency,
+    get_resized_image_bytes,
 )
 from app.services.quality import build_document_quality_report
 from app.services.retrieval import DEFAULT_POLICY_PATH
@@ -144,6 +146,27 @@ async def ui_config():
         "max_upload_mb": MAX_UPLOAD_BYTES // (1024 * 1024),
         "prompt_versions": PROMPT_VERSIONS,
     }
+
+
+@app.post("/api/v1/preview")
+async def document_preview(
+    image_bytes: bytes = Depends(get_resized_image_bytes),
+):
+    """Return the normalized image that the extraction pipeline will receive."""
+    media_type = detect_image_content_type(image_bytes)
+    if media_type not in {"image/jpeg", "image/png"}:
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Could not create a document preview."},
+        )
+    return Response(
+        content=image_bytes,
+        media_type=media_type,
+        headers={
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @app.post("/api/v1/validate/thai-id", response_model=RiskAssessmentResponse)

@@ -17,14 +17,14 @@ def anyio_backend():
     return "asyncio"
 
 
-def create_dummy_image_bytes() -> bytes:
-    """Returns minimalist valid JPEG bytes for router testing."""
+def create_dummy_image_bytes(extension: str = ".jpg") -> bytes:
+    """Return minimalist valid image bytes for router testing."""
     import cv2
     import numpy as np
 
     img = np.zeros((100, 100, 3), dtype=np.uint8)
     img.fill(200)
-    _, buf = cv2.imencode(".jpg", img)
+    _, buf = cv2.imencode(extension, img)
     return buf.tobytes()
 
 
@@ -98,6 +98,46 @@ class TestMainEndpoints:
             "request_latency_ms",
             "model_latency_ms",
         }
+
+    async def test_document_preview_returns_normalized_image_without_caching(self):
+        image_bytes = create_dummy_image_bytes()
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as ac:
+            response = await ac.post(
+                "/api/v1/preview",
+                files={"file": ("id.jpg", image_bytes, "image/jpeg")},
+            )
+
+        assert response.status_code == 200
+        assert response.content == image_bytes
+        assert response.headers["content-type"] == "image/jpeg"
+        assert response.headers["cache-control"] == "no-store"
+        assert response.headers["x-content-type-options"] == "nosniff"
+
+    @patch("app.services.image_processor.render_single_page_pdf")
+    async def test_document_preview_renders_pdf_as_png(self, mock_render_pdf):
+        png_bytes = create_dummy_image_bytes(".png")
+        mock_render_pdf.return_value = png_bytes
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as ac:
+            response = await ac.post(
+                "/api/v1/preview",
+                files={
+                    "file": (
+                        "receipt.pdf",
+                        b"%PDF-1.7\nsynthetic",
+                        "application/pdf",
+                    )
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.content == png_bytes
+        assert response.headers["content-type"] == "image/png"
+        mock_render_pdf.assert_awaited_once()
 
     @patch("app.main.evaluate_thai_id_risk")
     @patch("app.main.extract_thai_id")

@@ -6,7 +6,7 @@ Audit date: 2026-08-15. `docs/loop-engineering-goal.md` and `docs/requirement.md
 
 | Criterion | Evidence | Status |
 | --- | --- | --- |
-| Unit and offline regression gates | `python -m pytest tests/unit -q`: 89 passed, 1 Poppler integration check skipped because the renderer is unavailable locally; full `python -m pytest -q`: 89 passed, 2 skipped (Poppler and explicitly gated live flow); `python scripts/run_eval.py`: all thresholds passed | Proven |
+| Unit and offline regression gates | `python -m pytest tests/unit -q`: 91 passed, 1 Poppler integration check skipped because the renderer is unavailable locally; full `python -m pytest -q`: 91 passed, 2 skipped (Poppler and explicitly gated live flow); `python scripts/run_eval.py`: all thresholds passed | Proven |
 | Formatting and source integrity | Black check, JavaScript syntax check, YAML parse, Compose config, and `git diff --check` pass | Proven |
 | Both document workflows | Generated synthetic Thai ID and receipt uploaded through ASGI in mock mode; both returned actions, citations, audit events, and request IDs | Proven |
 | Bounded typed workflow | Pydantic workflow context/results, allowlisted tools, 1–3 attempt invariant, accurate preprocessing-stage traces, fail-closed routing, status/risk consistency, and PII-safe audit tests | Proven |

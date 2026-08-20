@@ -43,7 +43,7 @@ USE_MOCK_LLM=true python -m uvicorn app.main:app --reload
 
 Open `http://127.0.0.1:8000`. API documentation is at `/docs`, liveness at `/health/live`, readiness at `/health/ready`, and aggregate PII-free metrics at `/metrics`.
 
-Local PDF ingestion requires Poppler's `pdfinfo` and `pdftoppm` commands. The Docker image installs them automatically. PDF uploads must contain exactly one unencrypted page; the service renders that page to a bounded PNG before running the existing image-quality and extraction pipeline.
+Local PDF ingestion requires Poppler's `pdfinfo` and `pdftoppm` commands. The Docker image installs them automatically. PDF uploads must contain exactly one unencrypted page; the service renders that page to a bounded PNG before running the existing image-quality and extraction pipeline. The review UI obtains that normalized image from `POST /api/v1/preview`; preview responses bypass the model and use `Cache-Control: no-store`.
 
 For live extraction, set `USE_MOCK_LLM=false` and provide `OLLAMA_API_KEY` through a secret store. Never commit `.env`.
 
@@ -103,7 +103,7 @@ python scripts/run_eval.py
 black --check app tests scripts
 ```
 
-The current offline baseline has 89 passing unit tests; the real Poppler integration check skips when Poppler is unavailable. The synthetic evaluation matrix reports 100% schema validity and critical-field exact match for two fixture contracts, risk routing accuracy (6 cases), document-quality routing accuracy (6 cases), retrieval recall@3 (7 cases), workflow task success, citation correctness/precision, grounded-answer rate, and human-escalation accuracy (4 workflow cases), with zero detected prompt-injection leakage. These are deterministic regression results—not live-model accuracy, production throughput, or evidence of business savings. Generated JSON is written to `tests/evals/output/offline_metrics.json` and ignored by Git.
+The current offline baseline has 91 passing unit tests; the real Poppler integration check skips when Poppler is unavailable. The synthetic evaluation matrix reports 100% schema validity and critical-field exact match for two fixture contracts, risk routing accuracy (6 cases), document-quality routing accuracy (6 cases), retrieval recall@3 (7 cases), workflow task success, citation correctness/precision, grounded-answer rate, and human-escalation accuracy (4 workflow cases), with zero detected prompt-injection leakage. These are deterministic regression results—not live-model accuracy, production throughput, or evidence of business savings. Generated JSON is written to `tests/evals/output/offline_metrics.json` and ignored by Git.
 
 Live field-extraction evaluation is credential-dependent:
 

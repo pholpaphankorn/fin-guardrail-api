@@ -26,7 +26,12 @@ const qualityDispositionLabels = {
   REQUEST_RESUBMISSION: "RESUBMISSION REQUIRED",
 };
 
-const state = { documentType: "thai-id", file: null, previewUrl: null };
+const state = {
+  documentType: "thai-id",
+  file: null,
+  previewUrl: null,
+  previewRequest: null,
+};
 
 const tabs = [...document.querySelectorAll(".doc-tab")];
 const dropZone = document.querySelector("#drop-zone");
@@ -48,9 +53,11 @@ function formatBytes(bytes) {
 }
 
 function clearPreview() {
+  if (state.previewRequest) state.previewRequest.abort();
   if (state.previewUrl) URL.revokeObjectURL(state.previewUrl);
   state.file = null;
   state.previewUrl = null;
+  state.previewRequest = null;
   fileInput.value = "";
   previewImage.hidden = false;
   previewImage.removeAttribute("src");
@@ -60,29 +67,68 @@ function clearPreview() {
   document.querySelectorAll(".sample-card").forEach((card) => card.classList.remove("selected"));
 }
 
-function selectFile(file, sampleUrl = null) {
+async function selectFile(file, sampleUrl = null) {
   if (!file || !["image/jpeg", "image/png", "application/pdf"].includes(file.type)) {
     showRequestError("Choose a JPG, JPEG, PNG, or single-page PDF.");
     return;
   }
+  if (state.previewRequest) state.previewRequest.abort();
   if (state.previewUrl) URL.revokeObjectURL(state.previewUrl);
   state.file = file;
-  state.previewUrl = URL.createObjectURL(file);
+  state.previewUrl = null;
+  state.previewRequest = null;
   const isPdf = file.type === "application/pdf";
-  previewImage.hidden = isPdf;
-  if (isPdf) {
-    previewImage.removeAttribute("src");
-  } else {
-    previewImage.src = state.previewUrl;
-  }
   fileName.textContent = file.name;
   fileSize.textContent = formatBytes(file.size);
   emptyUpload.hidden = true;
   previewWrap.hidden = false;
-  validateButton.disabled = false;
+  previewImage.hidden = isPdf;
+  previewImage.removeAttribute("src");
+  validateButton.disabled = isPdf;
   document.querySelectorAll(".sample-card").forEach((card) => {
     card.classList.toggle("selected", card.dataset.url === sampleUrl);
   });
+
+  if (!isPdf) {
+    state.previewUrl = URL.createObjectURL(file);
+    previewImage.src = state.previewUrl;
+    previewImage.hidden = false;
+    return;
+  }
+
+  fileSize.textContent = `${formatBytes(file.size)} · Rendering preview…`;
+  const controller = new AbortController();
+  state.previewRequest = controller;
+  const body = new FormData();
+  body.append("file", file);
+
+  try {
+    const response = await fetch("/api/v1/preview", {
+      method: "POST",
+      body,
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const payload = await response.json();
+      const detail = typeof payload.detail === "string" ? payload.detail : "Preview failed.";
+      throw new Error(detail);
+    }
+    const previewBlob = await response.blob();
+    if (state.file !== file) return;
+    state.previewUrl = URL.createObjectURL(previewBlob);
+    previewImage.src = state.previewUrl;
+    previewImage.hidden = false;
+    fileSize.textContent = formatBytes(file.size);
+    validateButton.disabled = false;
+  } catch (error) {
+    if (error.name === "AbortError") return;
+    if (state.file === file) {
+      clearPreview();
+      showRequestError(error.message || "The server could not render this PDF preview.");
+    }
+  } finally {
+    if (state.previewRequest === controller) state.previewRequest = null;
+  }
 }
 
 function renderSamples() {
@@ -116,7 +162,7 @@ function renderSamples() {
         if (!response.ok) throw new Error("Sample image could not be loaded.");
         const blob = await response.blob();
         const filename = sample.url.split("/").pop();
-        selectFile(new File([blob], filename, { type: blob.type }), sample.url);
+        await selectFile(new File([blob], filename, { type: blob.type }), sample.url);
       } catch (error) {
         showRequestError(error.message);
       } finally {
@@ -367,7 +413,7 @@ dropZone.addEventListener("keydown", (event) => {
     fileInput.click();
   }
 });
-fileInput.addEventListener("change", () => selectFile(fileInput.files[0]));
+fileInput.addEventListener("change", () => void selectFile(fileInput.files[0]));
 removeFile.addEventListener("click", (event) => {
   event.stopPropagation();
   clearPreview();
@@ -380,7 +426,7 @@ removeFile.addEventListener("click", (event) => {
   event.preventDefault();
   dropZone.classList.remove("dragging");
 }));
-dropZone.addEventListener("drop", (event) => selectFile(event.dataTransfer.files[0]));
+dropZone.addEventListener("drop", (event) => void selectFile(event.dataTransfer.files[0]));
 validateButton.addEventListener("click", validateDocument);
 
 fetch("/api/v1/config")
